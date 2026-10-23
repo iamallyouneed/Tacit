@@ -39,10 +39,22 @@ $env:TACIT_TEST_SIGN_PASS = if ($env:TS_KEYSTORE) { $env:TS_KEYSTORE_PASS } else
 Run 'sign tests' { & "$($tools.FullName)/apksigner$bat" sign --ks $keystore --ks-pass env:TACIT_TEST_SIGN_PASS --out $apk $aligned }
 Run 'install keyboard' { & $adb @device install --no-incremental --no-streaming -r (Join-Path $PSScriptRoot 'build/tacit.apk') }
 Run 'install UI tests' { & $adb @device install --no-incremental --no-streaming -r $apk }
+$testIme = 'io.github.iamallyouneed.tacit/.TacitIme'
+# Package installation can finish before InputMethodManager consumes the package broadcast.
+for ($attempt = 0; $attempt -lt 30; $attempt++) {
+    $methods = Run 'query installed IMEs' { & $adb @device shell ime list -a -s }
+    if ($methods -contains $testIme) { break }
+    Start-Sleep -Seconds 1
+}
+if ($methods -notcontains $testIme) {
+    & $adb @device shell dumpsys input_method
+    & $adb @device logcat -d -s InputMethodManagerService:W PackageManager:W
+    throw 'Installed Tacit IME was not registered within 30 seconds'
+}
 $oldIme = (Run 'current IME' { & $adb @device shell settings get secure default_input_method }).Trim()
 try {
-    Run 'enable test IME' { & $adb @device shell ime enable io.github.iamallyouneed.tacit/.TacitIme }
-    Run 'select test IME' { & $adb @device shell ime set io.github.iamallyouneed.tacit/.TacitIme }
+    Run 'enable test IME' { & $adb @device shell ime enable $testIme }
+    Run 'select test IME' { & $adb @device shell ime set $testIme }
     $result = Run 'UI smoke' { & $adb @device shell am instrument -w io.github.iamallyouneed.tacit.tests/io.github.iamallyouneed.tacit.KeyboardUxSmoke }
     $result | Write-Output
     if (($result -join "`n") -notmatch 'PASS: toolbar/readings') { throw 'Android UI smoke did not pass' }
