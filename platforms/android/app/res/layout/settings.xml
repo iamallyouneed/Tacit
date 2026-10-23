@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/settings_panel" android:layout_width="match_parent"
+    android:layout_height="228dp" android:background="@color/keyboard_background"
+    android:fillViewport="true" android:visibility="gone">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="8dp">
+        <TextView android:layout_width="match_parent" android:layout_height="32dp"
+            android:paddingLeft="12dp" android:gravity="center_vertical"
+            android:text="@string/theme" android:textSize="13sp" android:textColor="@color/keyboard_hint" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="48dp">
+            <Button android:id="@+id/theme_system" style="@style/KeyboardChoice" android:text="@string/theme_system" />
+            <Button android:id="@+id/theme_light" style="@style/KeyboardChoice" android:text="@string/theme_light" />
+            <Button android:id="@+id/theme_dark" style="@style/KeyboardChoice" android:text="@string/theme_dark" />
+        </LinearLayout>
+        <TextView android:layout_width="match_parent" android:layout_height="32dp"
+            android:paddingLeft="12dp" android:gravity="center_vertical"
+            android:text="@string/key_height" android:textSize="13sp" android:textColor="@color/keyboard_hint" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="48dp">
+            <Button android:id="@+id/height_compact" style="@style/KeyboardChoice" android:text="@string/height_compact" />
+            <Button android:id="@+id/height_regular" style="@style/KeyboardChoice" android:text="@string/height_regular" />
+            <Button android:id="@+id/height_tall" style="@style/KeyboardChoice" android:text="@string/height_tall" />
+        </LinearLayout>
+        <Switch android:id="@+id/haptics_setting" android:layout_width="match_parent"
+            android:layout_height="48dp" android:paddingLeft="12dp" android:paddingRight="12dp"
+            android:text="@string/haptics" android:textSize="16sp" android:textColor="@color/keyboard_text" />
+        <Switch android:id="@+id/preview_setting" android:layout_width="match_parent"
+            android:layout_height="48dp" android:paddingLeft="12dp" android:paddingRight="12dp"
+            android:text="@string/key_preview" android:textSize="16sp" android:textColor="@color/keyboard_text" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="48dp">
+            <Button android:id="@+id/cursor_left" style="@style/KeyboardChoice" android:text="@string/cursor_left" />
+            <Button android:id="@+id/cursor_right" style="@style/KeyboardChoice" android:text="@string/cursor_right" />
+        </LinearLayout>
+        <Button android:id="@+id/choose_keyboard" android:layout_width="match_parent"
+            android:layout_height="48dp" android:background="@drawable/reading_chip"
+            android:text="@string/choose_keyboard" android:textAllCaps="false" android:textColor="@color/keyboard_text" />
+    </LinearLayout>
+</ScrollView>

@@ -12,6 +12,10 @@ import android.graphics.Paint;
 import android.util.AttributeSet;
 import android.inputmethodservice.Keyboard;
 import android.inputmethodservice.KeyboardView;
+import android.view.MotionEvent;
+import android.view.ViewConfiguration;
+
+import java.util.function.IntConsumer;
 
 /**
  * The framework's keyboard view. tacit mode: letters with the 2-set Hangul jamo of each key in
@@ -26,6 +30,61 @@ public class DualKeyboardView extends KeyboardView {
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private int mode = Native.MODE_AUTO;
+    private IntConsumer cursorMove;
+    private boolean spaceTouch;
+    private boolean dragging;
+    private float startX, startY, cursorX;
+
+    public void setOnCursorMoveListener(IntConsumer listener) {
+        cursorMove = listener;
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) {
+            spaceTouch = false;
+            dragging = false;
+            startX = cursorX = event.getX();
+            startY = event.getY();
+            if (getKeyboard() != null && cursorMove != null) {
+                for (Keyboard.Key key : getKeyboard().getKeys()) {
+                    if (key.codes[0] == 32 && key.isInside((int) startX - getPaddingLeft(),
+                            (int) startY - getPaddingTop())) spaceTouch = true;
+                }
+            }
+        }
+        if (event.getPointerCount() > 1) spaceTouch = false;
+        if (spaceTouch && action == MotionEvent.ACTION_MOVE) {
+            float distance = event.getX() - startX;
+            float step = 16 * getResources().getDisplayMetrics().density;
+            if (!dragging && Math.abs(distance) > Math.max(step,
+                    ViewConfiguration.get(getContext()).getScaledTouchSlop())
+                    && Math.abs(distance) > Math.abs(event.getY() - startY)) {
+                dragging = true;
+                MotionEvent cancel = MotionEvent.obtain(event);
+                cancel.setAction(MotionEvent.ACTION_CANCEL);
+                super.onTouchEvent(cancel); // cancel the pending space and its key preview
+                cancel.recycle();
+                if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
+            }
+            if (dragging) {
+                int steps = (int) ((event.getX() - cursorX) / step);
+                if (steps != 0) {
+                    cursorMove.accept(steps);
+                    cursorX += steps * step;
+                }
+            }
+        }
+        if (dragging) {
+            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                spaceTouch = dragging = false;
+            }
+            return true;
+        }
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) spaceTouch = false;
+        return super.onTouchEvent(event);
+    }
 
     public DualKeyboardView(Context context, AttributeSet attrs) {
         super(context, attrs);

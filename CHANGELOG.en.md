@@ -9,6 +9,10 @@ Korean version: [CHANGELOG.md](CHANGELOG.md).
 
 ## [Unreleased]
 
+### Changed
+
+- Android now keeps a fixed toolbar and a separate reading strip, with direct paste, clipboard and emoji access. Spacebar dragging moves the cursor without typing spaces. Neutral light/dark colors and clearer function keys simplify the keyboard. An in-keyboard settings panel saves system/light/dark themes, three key heights, haptics and key previews; changing theme or height preserves the current composition.
+
 ## [0.10.9] - 2026-10-23
 
 ### Added

@@ -29,4 +29,13 @@
     <string name="key_preview">키 미리보기</string>
     <string name="choose_keyboard">다른 키보드 선택</string>
     <string name="clipboard_no_history">기록은 따로 저장하지 않아요</string>
+    <string name="emoji">이모지</string>
+    <string name="theme">테마</string>
+    <string name="theme_system">시스템</string>
+    <string name="theme_light">라이트</string>
+    <string name="theme_dark">다크</string>
+    <string name="key_height">키 높이</string>
+    <string name="height_compact">낮게</string>
+    <string name="height_regular">기본</string>
+    <string name="height_tall">높게</string>
 </resources>

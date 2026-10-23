@@ -18,36 +18,44 @@
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:background="@drawable/reading_chip"
-            android:padding="12dp"
+            android:padding="14dp"
             android:src="@drawable/tacit_logo"
             android:scaleType="fitCenter"
             android:contentDescription="@string/input_mode" />
 
-        <HorizontalScrollView
-            android:id="@+id/readings_scroll"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:fillViewport="true"
-            android:scrollbars="none">
-            <LinearLayout
-                android:id="@+id/readings"
-                android:layout_width="wrap_content"
-                android:layout_height="match_parent"
-                android:gravity="center_vertical"
-                android:orientation="horizontal" />
-        </HorizontalScrollView>
-
-        <ImageButton
-            android:id="@+id/tools_toggle"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:minWidth="48dp"
-            android:background="@drawable/reading_chip"
-            android:contentDescription="@string/tools"
-            android:padding="12dp"
-            android:src="@drawable/ic_ellipsis" />
+        <ImageButton android:id="@+id/paste_tool" android:layout_width="0dp"
+            android:layout_height="48dp" android:layout_weight="1" android:minWidth="48dp"
+            android:background="@drawable/reading_chip" android:padding="12dp"
+            android:src="@drawable/ic_clipboard_paste" android:contentDescription="@string/paste"
+            android:tooltipText="@string/paste" />
+        <ImageButton android:id="@+id/clipboard_tool" android:layout_width="0dp"
+            android:layout_height="48dp" android:layout_weight="1" android:minWidth="48dp"
+            android:background="@drawable/reading_chip" android:padding="12dp"
+            android:src="@drawable/ic_clipboard" android:contentDescription="@string/clipboard"
+            android:tooltipText="@string/clipboard" />
+        <ImageButton android:id="@+id/emoji_tool" android:layout_width="0dp"
+            android:layout_height="48dp" android:layout_weight="1" android:minWidth="48dp"
+            android:background="@drawable/reading_chip" android:padding="12dp"
+            android:src="@drawable/ic_smile" android:contentDescription="@string/emoji"
+            android:tooltipText="@string/emoji" />
+        <ImageButton android:id="@+id/more_tool" android:layout_width="0dp"
+            android:layout_height="48dp" android:layout_weight="1" android:minWidth="48dp"
+            android:background="@drawable/reading_chip" android:padding="12dp"
+            android:src="@drawable/ic_ellipsis" android:contentDescription="@string/keyboard_settings"
+            android:tooltipText="@string/keyboard_settings" />
+        <ImageButton android:id="@+id/tools_toggle" android:layout_width="48dp"
+            android:layout_height="48dp" android:background="@drawable/reading_chip"
+            android:padding="12dp" android:src="@drawable/ic_chevron_down"
+            android:contentDescription="@string/hide_keyboard" />
     </LinearLayout>
+
+    <HorizontalScrollView android:id="@+id/readings_scroll"
+        android:layout_width="match_parent" android:layout_height="40dp"
+        android:fillViewport="true" android:scrollbars="none">
+        <LinearLayout android:id="@+id/readings" android:layout_width="wrap_content"
+            android:layout_height="match_parent" android:gravity="center_vertical"
+            android:orientation="horizontal" />
+    </HorizontalScrollView>
 
     <FrameLayout
         android:layout_width="match_parent"
@@ -125,5 +133,16 @@
                 android:textColor="@color/keyboard_hint"
                 android:textSize="12sp" />
         </LinearLayout>
+        <LinearLayout android:id="@+id/emoji_panel" android:layout_width="match_parent"
+            android:layout_height="228dp" android:background="@color/keyboard_background"
+            android:orientation="vertical" android:padding="8dp" android:visibility="gone">
+            <TextView android:layout_width="match_parent" android:layout_height="32dp"
+                android:gravity="center_vertical" android:paddingLeft="12dp"
+                android:text="@string/emoji" android:textSize="16sp"
+                android:textColor="@color/keyboard_text" />
+            <LinearLayout android:id="@+id/emoji_rows" android:layout_width="match_parent"
+                android:layout_height="0dp" android:layout_weight="1" android:orientation="vertical" />
+        </LinearLayout>
+        <include layout="@layout/settings" />
     </FrameLayout>
 </LinearLayout>

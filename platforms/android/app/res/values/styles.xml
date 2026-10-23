@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="KeyboardAppearance">
+        <item name="android:colorAccent">@color/keyboard_accent</item>
+    </style>
+    <style name="KeyboardChoice">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">48dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:background">@drawable/reading_chip</item>
+        <item name="android:textColor">@color/keyboard_text</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textAllCaps">false</item>
+    </style>
+</resources>

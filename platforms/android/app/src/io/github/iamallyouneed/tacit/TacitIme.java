@@ -3,6 +3,8 @@ package io.github.iamallyouneed.tacit;
 import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.ClipboardManager;
+import android.content.Context;
+import android.content.res.Configuration;
 import android.inputmethodservice.InputMethodService;
 import android.inputmethodservice.Keyboard;
 import android.inputmethodservice.KeyboardView;
@@ -15,6 +17,8 @@ import android.view.HapticFeedbackConstants;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.ContextThemeWrapper;
+import android.view.LayoutInflater;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
@@ -23,6 +27,7 @@ import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.PopupMenu;
 import android.widget.TextView;
+import android.widget.Switch;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -55,8 +60,12 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
     private TextView clipboardPreview;
     private Button clipboardPaste;
     private ImageButton toolsToggle;
-    private boolean toolsOpen;
-    private boolean cursorTools;
+    private View emojiPanel;
+    private ImageButton clipboardTool;
+    private ImageButton emojiTool;
+    private View settingsPanel;
+    private ImageButton moreTool;
+    private Context keyboardContext;
     private boolean hapticsEnabled = true;
     private boolean keyPreviewEnabled = true;
     private boolean capsLocked;
@@ -74,7 +83,7 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
 
     @Override
     public void onDestroy() {
-        closeClipboard();
+        closePanels();
         Native.nativeDestroy(ime);
         ime = 0;
         super.onDestroy();
@@ -82,11 +91,26 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
 
     @Override
     public View onCreateInputView() {
-        letters = new Keyboard(this, R.xml.qwerty);
-        symbols = new Keyboard(this, R.xml.symbols);
-        View root = getLayoutInflater().inflate(R.layout.input, null);
+        Configuration configuration = new Configuration(getResources().getConfiguration());
+        int theme = getSharedPreferences("keyboard", MODE_PRIVATE).getInt("theme", 0);
+        if (theme != 0) configuration.uiMode = (configuration.uiMode & ~Configuration.UI_MODE_NIGHT_MASK)
+                | (theme == 2 ? Configuration.UI_MODE_NIGHT_YES : Configuration.UI_MODE_NIGHT_NO);
+        boolean dark = (configuration.uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+        keyboardContext = new ContextThemeWrapper(createConfigurationContext(configuration), dark
+                ? android.R.style.Theme_Material_NoActionBar : android.R.style.Theme_Material_Light_NoActionBar);
+        int height = getSharedPreferences("keyboard", MODE_PRIVATE).getInt("height", 1);
+        keyboardContext.getTheme().applyStyle(R.style.KeyboardAppearance, true);
+        int keyHeight = height == 0 ? 48 : height == 2 ? 60 : 54;
+        letters = new SizedKeyboard(keyboardContext, R.xml.qwerty, keyHeight);
+        symbols = new SizedKeyboard(keyboardContext, R.xml.symbols, keyHeight);
+        View root = LayoutInflater.from(keyboardContext).inflate(R.layout.input, null);
         readingsView = root.findViewById(R.id.readings);
         toolsToggle = root.findViewById(R.id.tools_toggle);
+        emojiPanel = root.findViewById(R.id.emoji_panel);
+        clipboardTool = root.findViewById(R.id.clipboard_tool);
+        emojiTool = root.findViewById(R.id.emoji_tool);
+        settingsPanel = root.findViewById(R.id.settings_panel);
+        moreTool = root.findViewById(R.id.more_tool);
         clipboardPanel = root.findViewById(R.id.clipboard_panel);
         clipboardPreview = root.findViewById(R.id.clipboard_preview);
         clipboardPaste = root.findViewById(R.id.clipboard_paste);
@@ -98,23 +122,66 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
         keyboardView.setOnKeyboardActionListener(this);
         keyboardView.setPreviewEnabled(keyPreviewEnabled);
         keyboardView.setKeyboard(letters);
+        keyboardView.setOnCursorMoveListener(this::moveCursor);
         toolsToggle.setOnClickListener(v -> {
             feedback();
-            if (clipboardPanel.getVisibility() == View.VISIBLE) {
-                closeClipboard();
+            if (clipboardPanel.getVisibility() == View.VISIBLE || emojiPanel.getVisibility() == View.VISIBLE
+                    || settingsPanel.getVisibility() == View.VISIBLE) {
+                closePanels();
                 refresh();
-            } else if (!active || Native.nativeReadings(ime).isEmpty()) {
-                requestHideSelf(0);
             } else {
-                toolsOpen = !toolsOpen;
-                cursorTools = false;
-                showReadings();
+                requestHideSelf(0);
             }
         });
+        root.findViewById(R.id.paste_tool).setOnClickListener(v -> pasteClipboard());
+        clipboardTool.setOnClickListener(v -> { feedback(); openClipboard(); });
+        emojiTool.setOnClickListener(v -> { feedback(); openEmoji(); });
+        moreTool.setOnClickListener(v -> { feedback(); openSettings(); });
+        bindChoices(root, new int[] {R.id.theme_system, R.id.theme_light, R.id.theme_dark}, "theme", 0);
+        bindChoices(root, new int[] {R.id.height_compact, R.id.height_regular, R.id.height_tall}, "height", 1);
+        Switch haptics = root.findViewById(R.id.haptics_setting);
+        haptics.setChecked(hapticsEnabled);
+        haptics.setOnCheckedChangeListener((button, checked) -> {
+            hapticsEnabled = checked;
+            getSharedPreferences("keyboard", MODE_PRIVATE).edit().putBoolean("haptics", checked).apply();
+        });
+        Switch preview = root.findViewById(R.id.preview_setting);
+        preview.setChecked(keyPreviewEnabled);
+        preview.setOnCheckedChangeListener((button, checked) -> {
+            keyPreviewEnabled = checked;
+            keyboardView.setPreviewEnabled(checked);
+            getSharedPreferences("keyboard", MODE_PRIVATE).edit().putBoolean("preview", checked).apply();
+        });
+        root.findViewById(R.id.choose_keyboard).setOnClickListener(v -> {
+            InputMethodManager manager = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (manager != null) manager.showInputMethodPicker();
+        });
+        root.findViewById(R.id.cursor_left).setOnClickListener(v -> moveCursor(-1));
+        root.findViewById(R.id.cursor_right).setOnClickListener(v -> moveCursor(1));
+        LinearLayout emojiRows = root.findViewById(R.id.emoji_rows);
+        for (String row : new String[] {"😀 😄 😂 🥹 😊 😍", "🥰 😎 🤔 😭 🙏 👍", "❤️ 🎉 🔥 ✨ 👀 ✅"}) {
+            LinearLayout line = new LinearLayout(keyboardContext);
+            for (String emoji : row.split(" ")) {
+                Button button = new Button(keyboardContext);
+                button.setText(emoji);
+                button.setTextSize(26);
+                button.setContentDescription(emoji);
+                button.setBackgroundResource(R.drawable.reading_chip);
+                button.setOnClickListener(v -> {
+                    InputConnection ic = getCurrentInputConnection();
+                    if (ic == null) return;
+                    feedback();
+                    if (active) apply(ic, Native.nativeKey(ime, Native.OTHER, 0, before(ic)));
+                    if (ic.commitText(emoji, 1)) refresh();
+                });
+                line.addView(button, new LinearLayout.LayoutParams(0, -1, 1));
+            }
+            emojiRows.addView(line, new LinearLayout.LayoutParams(-1, 0, 1));
+        }
         root.findViewById(R.id.keyboard_menu).setOnClickListener(v -> showModeMenu(v));
         root.findViewById(R.id.clipboard_close).setOnClickListener(v -> {
             feedback();
-            closeClipboard();
+            closePanels();
             refresh();
         });
         clipboardPaste.setOnClickListener(v -> pasteClipboard());
@@ -128,15 +195,14 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
         active = ime != 0 && isTextField(info);
         composing = false;
         swallowed.clear();
-        toolsOpen = false;
-        closeClipboard();
+        closePanels();
         if (active) Native.nativeActivate(ime, info.packageName);
     }
 
     @Override
     public void onStartInputView(EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
-        closeClipboard();
+        closePanels();
         if (keyboardView != null) {
             capsLocked = false;
             lastShiftTap = 0;
@@ -149,7 +215,7 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
 
     @Override
     public void onFinishInput() {
-        closeClipboard();
+        closePanels();
         composing = false;
         InputConnection ic = getCurrentInputConnection();
         if (ic != null) ic.finishComposingText();
@@ -159,7 +225,7 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
 
     @Override
     public void onFinishInputView(boolean finishingInput) {
-        closeClipboard();
+        closePanels();
         super.onFinishInputView(finishingInput);
     }
 
@@ -366,6 +432,7 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
         boolean changed = false;
         for (Keyboard board : new Keyboard[] {letters, symbols}) {
             for (Keyboard.Key key : board.getKeys()) {
+                if (key.codes[0] < 0 && key.codes[0] != Keyboard.KEYCODE_SHIFT) key.on = true;
                 String next = null;
                 if (key.codes[0] == CODE_MODE) next = label;
                 if (key.codes[0] == 32) next = "tacit · " + (active ? modeLabel(mode) : "English");
@@ -374,7 +441,7 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
                     CharSequence text = "⏎".equals(action) ? null : action;
                     if (!TextUtils.equals(key.label, text) || (text == null && key.icon == null)) {
                         key.label = text;
-                        key.icon = text == null ? getDrawable(R.drawable.ic_corner_down_left) : null;
+                        key.icon = text == null ? keyboardContext.getDrawable(R.drawable.ic_corner_down_left) : null;
                         changed = true;
                     }
                     key.on = true;
@@ -421,7 +488,7 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
         for (Keyboard.Key key : letters.getKeys()) {
             if (key.codes[0] == Keyboard.KEYCODE_SHIFT) {
                 key.label = null;
-                key.icon = getDrawable(capsLocked ? R.drawable.ic_arrow_big_up_dash : R.drawable.ic_arrow_big_up);
+                key.icon = keyboardContext.getDrawable(capsLocked ? R.drawable.ic_arrow_big_up_dash : R.drawable.ic_arrow_big_up);
                 key.on = letters.isShifted();
             }
         }
@@ -435,27 +502,24 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
 
     private void showReadings() {
         String readings = active ? Native.nativeReadings(ime) : "";
-        boolean clipboard = clipboardPanel.getVisibility() == View.VISIBLE;
-        boolean tools = clipboard || toolsOpen || readings.isEmpty();
-        String state = tools ? "tools:" + cursorTools + ":" + clipboard : readings;
-        toolsToggle.setImageResource(clipboard ? R.drawable.ic_keyboard : readings.isEmpty()
-                ? R.drawable.ic_chevron_down : toolsOpen ? R.drawable.ic_chevron_left : R.drawable.ic_ellipsis);
-        toolsToggle.setContentDescription(getString(clipboard ? R.string.back_to_keyboard : readings.isEmpty()
-                ? R.string.hide_keyboard : toolsOpen ? R.string.readings : R.string.tools));
+        boolean panel = clipboardPanel.getVisibility() == View.VISIBLE || emojiPanel.getVisibility() == View.VISIBLE
+                || settingsPanel.getVisibility() == View.VISIBLE;
+        toolsToggle.setImageResource(panel ? R.drawable.ic_keyboard : R.drawable.ic_chevron_down);
+        toolsToggle.setContentDescription(getString(panel ? R.string.back_to_keyboard : R.string.hide_keyboard));
+        clipboardTool.setSelected(clipboardPanel.getVisibility() == View.VISIBLE);
+        emojiTool.setSelected(emojiPanel.getVisibility() == View.VISIBLE);
+        moreTool.setSelected(settingsPanel.getVisibility() == View.VISIBLE);
+        String state = readings.isEmpty() ? "idle:" + (active ? Native.nativeMode(ime) : Native.MODE_ENGLISH) : readings;
         if (state.equals(shownReadings)) return; // same controls: no rebuild per key
         shownReadings = state;
         readingsView.removeAllViews();
-        if (tools) {
-            if (cursorTools) {
-                addStripIcon(R.drawable.ic_chevron_left, R.string.tools, v -> { cursorTools = false; showReadings(); });
-                addStripIcon(R.drawable.ic_arrow_left, R.string.cursor_left, v -> moveCursor(KeyEvent.KEYCODE_DPAD_LEFT));
-                addStripIcon(R.drawable.ic_arrow_right, R.string.cursor_right, v -> moveCursor(KeyEvent.KEYCODE_DPAD_RIGHT));
-            } else {
-                ImageButton clip = addStripIcon(R.drawable.ic_clipboard, R.string.clipboard, v -> openClipboard());
-                clip.setSelected(clipboard);
-                addStripIcon(R.drawable.ic_move_horizontal, R.string.cursor_tools, v -> { cursorTools = true; showReadings(); });
-                addStripIcon(R.drawable.ic_settings_2, R.string.keyboard_settings, v -> showSettings(v));
-            }
+        if (readings.isEmpty()) {
+            TextView mode = new TextView(keyboardContext);
+            mode.setText(modeLabel(active ? Native.nativeMode(ime) : Native.MODE_ENGLISH));
+            mode.setTextColor(keyboardContext.getColor(R.color.keyboard_hint));
+            mode.setTextSize(13);
+            mode.setGravity(Gravity.CENTER);
+            readingsView.addView(mode, new LinearLayout.LayoutParams(-1, -1));
             return;
         }
         String[] parts = readings.split("\u0001");
@@ -467,23 +531,9 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
         }
     }
 
-    private ImageButton addStripIcon(int icon, int description, View.OnClickListener action) {
-        ImageButton button = new ImageButton(this);
-        button.setImageResource(icon);
-        button.setContentDescription(getString(description));
-        int padding = (int) (12 * getResources().getDisplayMetrics().density);
-        button.setPadding(padding, padding, padding, padding);
-        button.setScaleType(android.widget.ImageView.ScaleType.CENTER);
-        button.setMinimumWidth(padding * 4);
-        button.setBackgroundResource(R.drawable.reading_chip);
-        button.setOnClickListener(v -> { feedback(); action.onClick(v); });
-        readingsView.addView(button, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
-        return button;
-    }
-
     private void showModeMenu(View anchor) {
         feedback();
-        PopupMenu menu = new PopupMenu(this, anchor);
+        PopupMenu menu = new PopupMenu(keyboardContext, anchor);
         for (int mode = Native.MODE_AUTO; mode <= Native.MODE_ENGLISH; mode++) {
             menu.getMenu().add(0, mode, mode, modeLabel(mode)).setCheckable(true)
                     .setChecked(active && Native.nativeMode(ime) == mode).setEnabled(active);
@@ -501,36 +551,44 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
         menu.show();
     }
 
-    private void showSettings(View anchor) {
-        PopupMenu menu = new PopupMenu(this, anchor);
-        menu.getMenu().add(0, 1, 0, R.string.haptics).setCheckable(true).setChecked(hapticsEnabled);
-        menu.getMenu().add(0, 2, 1, R.string.key_preview).setCheckable(true).setChecked(keyPreviewEnabled);
-        menu.getMenu().add(0, 3, 2, R.string.choose_keyboard);
-        menu.setOnMenuItemClickListener(item -> {
-            if (item.getItemId() == 1) {
-                hapticsEnabled = !hapticsEnabled;
-                getSharedPreferences("keyboard", MODE_PRIVATE).edit().putBoolean("haptics", hapticsEnabled).apply();
-            } else if (item.getItemId() == 2) {
-                keyPreviewEnabled = !keyPreviewEnabled;
-                keyboardView.setPreviewEnabled(keyPreviewEnabled);
-                getSharedPreferences("keyboard", MODE_PRIVATE).edit().putBoolean("preview", keyPreviewEnabled).apply();
-            } else {
-                InputMethodManager manager = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-                if (manager != null) manager.showInputMethodPicker();
-            }
-            return true;
-        });
-        menu.show();
+    private void bindChoices(View root, int[] ids, String preference, int fallback) {
+        int selected = getSharedPreferences("keyboard", MODE_PRIVATE).getInt(preference, fallback);
+        for (int i = 0; i < ids.length; i++) {
+            int choice = i;
+            View button = root.findViewById(ids[i]);
+            button.setSelected(i == selected);
+            button.setOnClickListener(v -> {
+                if (choice == selected) return;
+                getSharedPreferences("keyboard", MODE_PRIVATE).edit().putInt(preference, choice).apply();
+                boolean shifted = letters.isShifted();
+                boolean symbolLayout = keyboardView.getKeyboard() == symbols;
+                closePanels();
+                setInputView(onCreateInputView());
+                letters.setShifted(shifted);
+                keyboardView.setKeyboard(symbolLayout ? symbols : letters);
+                updateShiftLabel();
+                refresh();
+                openSettings();
+            });
+        }
+    }
+
+    private void openSettings() {
+        closePanels();
+        settingsPanel.getLayoutParams().height = panelHeight();
+        settingsPanel.setVisibility(View.VISIBLE);
+        keyboardView.setVisibility(View.INVISIBLE);
+        showReadings();
     }
 
     private void addReading(String label, boolean selected, int index) {
         float density = getResources().getDisplayMetrics().density;
-        Button button = new Button(this);
+        Button button = new Button(keyboardContext);
         button.setText(label);
         button.setAllCaps(false);
         button.setSelected(selected);
-        button.setTextColor(getColor(selected ? R.color.keyboard_accent : R.color.keyboard_text));
-        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        button.setTextColor(keyboardContext.getColor(selected ? R.color.keyboard_accent : R.color.keyboard_text));
+        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
         button.setMinWidth((int) (48 * density));
         button.setPadding((int) (12 * density), 0, (int) (12 * density), 0);
         button.setGravity(Gravity.CENTER);
@@ -541,22 +599,37 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
                 LinearLayout.LayoutParams.MATCH_PARENT));
     }
 
-    private void moveCursor(int code) {
+    private void moveCursor(int steps) {
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) return;
         if (active) apply(ic, Native.nativeKey(ime, Native.OTHER, 0, before(ic)));
-        sendDownUpKeyEvents(code);
+        for (int i = 0; i < Math.abs(steps); i++) {
+            sendDownUpKeyEvents(steps < 0 ? KeyEvent.KEYCODE_DPAD_LEFT : KeyEvent.KEYCODE_DPAD_RIGHT);
+        }
         refresh();
     }
 
-    private void closeClipboard() {
+    private int panelHeight() {
+        return keyboardView.getHeight() > 0 ? keyboardView.getHeight()
+                : keyboardView.getKeyboard().getHeight() + keyboardView.getPaddingTop() + keyboardView.getPaddingBottom();
+    }
+
+    private void closePanels() {
         if (clipboardPanel == null) return;
         if (clipboardManager != null) clipboardManager.removePrimaryClipChangedListener(clipboardChanged);
         clipboardPanel.setVisibility(View.GONE);
+        emojiPanel.setVisibility(View.GONE);
+        settingsPanel.setVisibility(View.GONE);
         clipboardPreview.setText("");
         keyboardView.setVisibility(View.VISIBLE);
-        toolsOpen = false;
-        cursorTools = false;
+    }
+
+    private void openEmoji() {
+        closePanels();
+        emojiPanel.getLayoutParams().height = panelHeight();
+        emojiPanel.setVisibility(View.VISIBLE);
+        keyboardView.setVisibility(View.INVISIBLE);
+        showReadings();
     }
 
     private ClipData clipboardText() {
@@ -564,8 +637,9 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
     }
 
     private void openClipboard() {
-        clipboardPanel.getLayoutParams().height = Math.max(keyboardView.getHeight(),
-                (int) (236 * getResources().getDisplayMetrics().density));
+        emojiPanel.setVisibility(View.GONE);
+        settingsPanel.setVisibility(View.GONE);
+        clipboardPanel.getLayoutParams().height = panelHeight();
         keyboardView.setVisibility(View.INVISIBLE); // keep the panel and keyboard at the same height
         clipboardPanel.setVisibility(View.VISIBLE);
         showReadings();
@@ -609,12 +683,14 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
             feedback();
             if (active) apply(ic, Native.nativeKey(ime, Native.OTHER, 0, before(ic)));
             if (!ic.commitText(text.toString(), 1)) {
+                openClipboard();
                 clipboardPreview.setText(R.string.paste_unavailable);
                 return;
             }
-            closeClipboard();
+            closePanels();
             refresh();
         } catch (SecurityException denied) {
+            openClipboard();
             clipboardPreview.setText(R.string.clipboard_unavailable);
             clipboardPaste.setEnabled(false);
         }
