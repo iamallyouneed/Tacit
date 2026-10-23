@@ -28,6 +28,7 @@
 
 <p align="center">
   <a href="https://github.com/iamallyouneed/tacit/releases/latest"><img src="https://img.shields.io/github/v/release/iamallyouneed/tacit?label=release&color=2ea44f" alt="release"></a>
+  <a href="https://github.com/iamallyouneed/tacit/releases"><img src="https://img.shields.io/github/downloads/iamallyouneed/tacit/total?label=downloads&amp;color=555" alt="릴리스 누적 다운로드 수"></a>
   <a href="https://github.com/iamallyouneed/tacit/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/iamallyouneed/tacit/ci.yml?branch=main&label=CI" alt="CI"></a>
   <img src="https://img.shields.io/badge/Rust-2021-000000?logo=rust&logoColor=white" alt="Rust">
   <img src="https://img.shields.io/badge/Windows-TSF-0078D4?logo=windows&logoColor=white" alt="Windows">
@@ -112,7 +113,7 @@ irm https://github.com/iamallyouneed/tacit/releases/latest/download/install.ps1 
 ```powershell
 $i = [scriptblock]::Create((irm https://github.com/iamallyouneed/tacit/releases/latest/download/install.ps1))
 & $i -Uninstall            # 제거 (설정과 언어 팩은 남는다)
-& $i -Version v0.10.9       # 특정 버전
+& $i -Version v0.10.10       # 특정 버전
 & $i -Japanese             # 일본어도 켠다 (-Languages 와 같이 쓰면 거기에 더한다)
 ```
 

@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="keyboard_background">#E9EFF5</color>
-    <color name="keyboard_key">#FCFDFF</color>
-    <color name="keyboard_text">#1B2C40</color>
-    <color name="keyboard_hint">#5B7088</color>
-    <color name="keyboard_pressed">#CADFF5</color>
-    <color name="keyboard_accent">#245FA8</color>
-    <color name="keyboard_border">#CFDAE6</color>
+    <color name="keyboard_background">#E3E3E3</color>
+    <color name="keyboard_key">#FFFFFF</color>
+    <color name="keyboard_text">#202020</color>
+    <color name="keyboard_hint">#666666</color>
+    <color name="keyboard_pressed">#CCCCCC</color>
+    <color name="keyboard_accent">#202020</color>
+    <color name="keyboard_border">#CDCDCD</color>
+    <color name="keyboard_function">#CCCCCC</color>
 </resources>

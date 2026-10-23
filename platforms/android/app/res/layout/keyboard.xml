@@ -9,6 +9,6 @@
     android:paddingBottom="6dp"
     android:keyBackground="@drawable/keyboard_key"
     android:keyTextColor="@color/keyboard_text"
-    android:keyTextSize="21sp"
-    android:labelTextSize="13sp"
+    android:keyTextSize="22sp"
+    android:labelTextSize="14sp"
     android:shadowRadius="0" />

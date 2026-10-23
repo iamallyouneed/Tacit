@@ -9,6 +9,12 @@ Korean version: [CHANGELOG.md](CHANGELOG.md).
 
 ## [Unreleased]
 
+## [0.10.10] - 2026-10-23
+
+### Changed
+
+- Android now keeps a fixed toolbar and a separate reading strip, with direct paste, clipboard and emoji access. Spacebar dragging moves the cursor without typing spaces. Neutral light/dark colors and clearer function keys simplify the keyboard. An in-keyboard settings panel saves system/light/dark themes, three key heights, haptics and key previews; changing theme or height preserves the current composition.
+
 ## [0.10.9] - 2026-10-23
 
 ### Added
@@ -440,7 +446,8 @@ This version is **0.8.0**, not 0.7.1, because the pack file format changed. Pack
 
 - First release: English/Korean auto-decision input method for Windows (TSF), Tab completion, per-app rules, KakaoTalk compatibility.
 
-[Unreleased]: https://github.com/iamallyouneed/tacit/compare/v0.10.9...HEAD
+[Unreleased]: https://github.com/iamallyouneed/tacit/compare/v0.10.10...HEAD
+[0.10.10]: https://github.com/iamallyouneed/tacit/compare/v0.10.9...v0.10.10
 [0.10.9]: https://github.com/iamallyouneed/tacit/compare/v0.10.8...v0.10.9
 [0.10.8]: https://github.com/iamallyouneed/tacit/compare/v0.10.7...v0.10.8
 [0.10.7]: https://github.com/iamallyouneed/tacit/compare/v0.10.6...v0.10.7

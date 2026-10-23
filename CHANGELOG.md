@@ -9,6 +9,12 @@ GitHub 릴리스 노트가 되고 대시보드의 업데이트 탭에도 그대�
 
 ## [Unreleased]
 
+## [0.10.10] - 2026-10-23
+
+### 변경
+
+- Android 키보드의 도구바와 후보 줄을 분리하고 붙여넣기·클립보드·이모지를 바로 열 수 있게 했습니다. 스페이스를 드래그하면 공백 입력 없이 커서를 옮깁니다. 밝은·어두운 모두 무채색으로 정리하고 기능 키 구분과 키 크기를 다듬었습니다. 키보드 안에서 시스템·라이트·다크 테마, 키 높이 3단계, 진동·키 미리보기를 설정하고 저장할 수 있으며, 테마와 높이를 바꿔도 작성 중인 조합을 유지합니다.
+
 ## [0.10.9] - 2026-10-23
 
 ### 추가
@@ -440,7 +446,8 @@ GitHub 릴리스 노트가 되고 대시보드의 업데이트 탭에도 그대�
 
 - 첫 공개: Windows용 영어·한국어 자동 판별 입력기(TSF), Tab 자동완성, 앱별 규칙, 카카오톡 호환.
 
-[Unreleased]: https://github.com/iamallyouneed/tacit/compare/v0.10.9...HEAD
+[Unreleased]: https://github.com/iamallyouneed/tacit/compare/v0.10.10...HEAD
+[0.10.10]: https://github.com/iamallyouneed/tacit/compare/v0.10.9...v0.10.10
 [0.10.9]: https://github.com/iamallyouneed/tacit/compare/v0.10.8...v0.10.9
 [0.10.8]: https://github.com/iamallyouneed/tacit/compare/v0.10.7...v0.10.8
 [0.10.7]: https://github.com/iamallyouneed/tacit/compare/v0.10.6...v0.10.7

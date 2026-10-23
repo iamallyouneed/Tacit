@@ -28,6 +28,7 @@ Type English, Korean, and Japanese on one QWERTY keyboard — it works out which
 
 <p align="center">
   <a href="https://github.com/iamallyouneed/tacit/releases/latest"><img src="https://img.shields.io/github/v/release/iamallyouneed/tacit?label=release&color=2ea44f" alt="release"></a>
+  <a href="https://github.com/iamallyouneed/tacit/releases"><img src="https://img.shields.io/github/downloads/iamallyouneed/tacit/total?label=downloads&amp;color=555" alt="Total release downloads"></a>
   <a href="https://github.com/iamallyouneed/tacit/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/iamallyouneed/tacit/ci.yml?branch=main&label=CI" alt="CI"></a>
   <img src="https://img.shields.io/badge/Rust-2021-000000?logo=rust&logoColor=white" alt="Rust">
   <img src="https://img.shields.io/badge/Windows-TSF-0078D4?logo=windows&logoColor=white" alt="Windows">
@@ -110,7 +111,7 @@ Re-running the command on an existing install is fine (enabled languages are kep
 ```powershell
 $i = [scriptblock]::Create((irm https://github.com/iamallyouneed/tacit/releases/latest/download/install.ps1))
 & $i -Uninstall            # remove (settings and language packs are kept)
-& $i -Version v0.10.9       # pinned release
+& $i -Version v0.10.10       # pinned release
 & $i -Japanese             # also enable Japanese (adds to -Languages if given)
 ```
 
