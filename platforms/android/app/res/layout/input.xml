@@ -5,15 +5,125 @@
     android:background="@color/keyboard_background"
     android:orientation="vertical">
 
-    <!-- The readings of the word being typed (hello / ㅗ디ㅣㅐ); tap one to read the word as that. -->
     <LinearLayout
-        android:id="@+id/readings"
         android:layout_width="match_parent"
-        android:layout_height="44dp"
+        android:layout_height="48dp"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingLeft="4dp"
-        android:paddingRight="4dp" />
+        android:paddingRight="4dp">
 
-    <include layout="@layout/keyboard" />
+        <ImageButton
+            android:id="@+id/keyboard_menu"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="@drawable/reading_chip"
+            android:padding="12dp"
+            android:src="@drawable/tacit_logo"
+            android:scaleType="fitCenter"
+            android:contentDescription="@string/input_mode" />
+
+        <HorizontalScrollView
+            android:id="@+id/readings_scroll"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:fillViewport="true"
+            android:scrollbars="none">
+            <LinearLayout
+                android:id="@+id/readings"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:gravity="center_vertical"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
+
+        <ImageButton
+            android:id="@+id/tools_toggle"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:minWidth="48dp"
+            android:background="@drawable/reading_chip"
+            android:contentDescription="@string/tools"
+            android:padding="12dp"
+            android:src="@drawable/ic_ellipsis" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <include layout="@layout/keyboard" />
+
+        <LinearLayout
+            android:id="@+id/clipboard_panel"
+            android:layout_width="match_parent"
+            android:layout_height="236dp"
+            android:background="@color/keyboard_background"
+            android:orientation="vertical"
+            android:padding="12dp"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:gravity="center_vertical">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/clipboard"
+                    android:textColor="@color/keyboard_text"
+                    android:textSize="18sp"
+                    android:fontFamily="sans-serif-medium" />
+                <Button
+                    android:id="@+id/clipboard_close"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:background="@drawable/reading_chip"
+                    android:drawableLeft="@drawable/ic_keyboard"
+                    android:drawablePadding="8dp"
+                    android:paddingLeft="12dp"
+                    android:paddingRight="12dp"
+                    android:text="@string/back_to_keyboard"
+                    android:textAllCaps="false"
+                    android:textColor="@color/keyboard_text" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/clipboard_preview"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:background="@drawable/keyboard_key"
+                android:ellipsize="end"
+                android:gravity="center_vertical"
+                android:maxLines="3"
+                android:padding="14dp"
+                android:textColor="@color/keyboard_text"
+                android:textSize="16sp" />
+
+            <Button
+                android:id="@+id/clipboard_paste"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:background="@drawable/clipboard_action"
+                android:drawableLeft="@drawable/ic_clipboard_paste"
+                android:drawablePadding="8dp"
+                android:paddingLeft="16dp"
+                android:paddingRight="16dp"
+                android:text="@string/paste"
+                android:textAllCaps="false"
+                android:textColor="@color/keyboard_text"
+                android:textSize="16sp" />
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:paddingTop="6dp"
+                android:text="@string/clipboard_no_history"
+                android:textColor="@color/keyboard_hint"
+                android:textSize="12sp" />
+        </LinearLayout>
+    </FrameLayout>
 </LinearLayout>

@@ -1,4 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Tacit</string>
+    <string name="tools">입력 도구</string>
+    <string name="readings">읽기 후보</string>
+    <string name="clipboard">클립보드</string>
+    <string name="back_to_keyboard">키보드로</string>
+    <string name="paste">붙여넣기</string>
+    <string name="clipboard_empty">복사한 텍스트가 여기에 표시됩니다</string>
+    <string name="clipboard_private">민감한 내용은 미리 표시하지 않습니다</string>
+    <string name="clipboard_unavailable">클립보드를 읽을 수 없습니다</string>
+    <string name="paste_unavailable">이 입력란에 붙여넣을 수 없습니다</string>
+    <string name="cursor_left">커서 왼쪽으로</string>
+    <string name="cursor_right">커서 오른쪽으로</string>
+    <string name="mode_auto">자동</string>
+    <string name="mode_korean">한국어</string>
+    <string name="confirm">확정</string>
+    <string name="action_search">검색</string>
+    <string name="action_send">전송</string>
+    <string name="action_next">다음</string>
+    <string name="action_done">완료</string>
+    <string name="action_go">이동</string>
+    <string name="action_previous">이전</string>
+    <string name="input_mode">입력 모드</string>
+    <string name="cursor_tools">커서 이동</string>
+    <string name="keyboard_settings">키보드 설정</string>
+    <string name="hide_keyboard">키보드 닫기</string>
+    <string name="haptics">키 누름 진동</string>
+    <string name="key_preview">키 미리보기</string>
+    <string name="choose_keyboard">다른 키보드 선택</string>
+    <string name="clipboard_no_history">기록은 따로 저장하지 않아요</string>
 </resources>

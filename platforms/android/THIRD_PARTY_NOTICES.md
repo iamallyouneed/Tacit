@@ -14,3 +14,13 @@ Tacit's remaining code is covered by the repository's AGPL-3.0-only license.
 
 HeliBoard's input engine, dictionaries, settings, and gesture libraries are not included.
 The rounded key backgrounds and light/dark palettes are original Tacit resources.
+
+## Lucide icons
+
+The `app/res/drawable/ic_*.xml` vectors are adapted from
+[Lucide](https://github.com/lucide-icons/lucide/tree/20aef31db93fe4d9f398dbb15b120d99c48eef95/icons)
+at commit `20aef31db93fe4d9f398dbb15b120d99c48eef95`.
+SVG geometry is preserved as Android vector paths with a 1.8-unit stroke.
+Lucide uses ISC, with MIT attribution for icons derived from Feather.
+The complete upstream [license](app/res/raw/lucide_license.txt) is bundled in the APK.
+No Lucide runtime dependency is used. The toolbar logo is Tacit's existing `assets/icon.png`.
