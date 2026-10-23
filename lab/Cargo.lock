@@ -280,7 +280,7 @@ dependencies = [
 
 [[package]]
 name = "tacit-core"
-version = "0.10.9"
+version = "0.10.10"
 dependencies = [
  "memmap2",
  "serde",
@@ -297,7 +297,7 @@ dependencies = [
 
 [[package]]
 name = "tacit-packgen"
-version = "0.10.9"
+version = "0.10.10"
 dependencies = [
  "serde_json",
  "sha2",

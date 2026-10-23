@@ -113,7 +113,7 @@ irm https://github.com/iamallyouneed/tacit/releases/latest/download/install.ps1 
 ```powershell
 $i = [scriptblock]::Create((irm https://github.com/iamallyouneed/tacit/releases/latest/download/install.ps1))
 & $i -Uninstall            # 제거 (설정과 언어 팩은 남는다)
-& $i -Version v0.10.9       # 특정 버전
+& $i -Version v0.10.10       # 특정 버전
 & $i -Japanese             # 일본어도 켠다 (-Languages 와 같이 쓰면 거기에 더한다)
 ```
 

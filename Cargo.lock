@@ -525,7 +525,7 @@ dependencies = [
 
 [[package]]
 name = "tacit-android"
-version = "0.10.9"
+version = "0.10.10"
 dependencies = [
  "jni",
  "tacit-core",
@@ -533,14 +533,14 @@ dependencies = [
 
 [[package]]
 name = "tacit-cli"
-version = "0.10.9"
+version = "0.10.10"
 dependencies = [
  "tacit-core",
 ]
 
 [[package]]
 name = "tacit-config"
-version = "0.10.9"
+version = "0.10.10"
 dependencies = [
  "getrandom 0.3.4",
  "serde",
@@ -556,7 +556,7 @@ dependencies = [
 
 [[package]]
 name = "tacit-core"
-version = "0.10.9"
+version = "0.10.10"
 dependencies = [
  "memmap2",
  "serde",
@@ -567,14 +567,14 @@ dependencies = [
 
 [[package]]
 name = "tacit-ffi"
-version = "0.10.9"
+version = "0.10.10"
 dependencies = [
  "tacit-core",
 ]
 
 [[package]]
 name = "tacit-packgen"
-version = "0.10.9"
+version = "0.10.10"
 dependencies = [
  "serde_json",
  "sha2",
@@ -583,7 +583,7 @@ dependencies = [
 
 [[package]]
 name = "tacit-tip"
-version = "0.10.9"
+version = "0.10.10"
 dependencies = [
  "tacit-core",
  "windows",
