@@ -39,8 +39,10 @@ $env:TACIT_TEST_SIGN_PASS = if ($env:TS_KEYSTORE) { $env:TS_KEYSTORE_PASS } else
 Run 'sign tests' { & "$($tools.FullName)/apksigner$bat" sign --ks $keystore --ks-pass env:TACIT_TEST_SIGN_PASS --out $apk $aligned }
 Run 'install keyboard' { & $adb @device install --no-incremental --no-streaming -r (Join-Path $PSScriptRoot 'build/tacit.apk') }
 Run 'install UI tests' { & $adb @device install --no-incremental --no-streaming -r $apk }
+Run 'wake emulator' { & $adb @device shell input keyevent KEYCODE_WAKEUP }
+Run 'unlock emulator' { & $adb @device shell wm dismiss-keyguard }
 $testIme = 'io.github.iamallyouneed.tacit/.TacitIme'
-# Package installation can finish before InputMethodManager consumes the package broadcast.
+# A fresh emulator must unlock its user and process package broadcasts before listing this IME.
 for ($attempt = 0; $attempt -lt 30; $attempt++) {
     $methods = Run 'query installed IMEs' { & $adb @device shell ime list -a -s }
     if ($methods -contains $testIme) { break }
