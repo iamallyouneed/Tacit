@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="io.github.iamallyouneed.tacit.tests">
+    <application android:label="Tacit UX checks" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <activity android:name="io.github.iamallyouneed.tacit.KeyboardTestActivity" android:exported="true" />
+    </application>
+    <instrumentation android:name="io.github.iamallyouneed.tacit.KeyboardUxSmoke" android:targetPackage="io.github.iamallyouneed.tacit" />
+</manifest>

@@ -4,21 +4,28 @@
     android:insetTop="4dp" android:insetBottom="4dp">
     <selector>
         <item android:state_selected="true">
-            <shape>
-                <solid android:color="@color/keyboard_pressed" />
-                <corners android:radius="16dp" />
-            </shape>
+            <layer-list>
+                <item>
+                    <shape>
+                        <solid android:color="@color/keyboard_pressed" />
+                        <corners android:radius="9dp" />
+                    </shape>
+                </item>
+                <item android:height="2dp" android:gravity="bottom" android:left="12dp" android:right="12dp" android:bottom="5dp">
+                    <shape><solid android:color="@color/keyboard_accent" /></shape>
+                </item>
+            </layer-list>
         </item>
         <item android:state_pressed="true">
             <shape>
                 <solid android:color="@color/keyboard_pressed" />
-                <corners android:radius="16dp" />
+                <corners android:radius="9dp" />
             </shape>
         </item>
         <item>
             <shape>
-                <solid android:color="@color/keyboard_key" />
-                <corners android:radius="16dp" />
+                <solid android:color="@android:color/transparent" />
+                <corners android:radius="9dp" />
             </shape>
         </item>
     </selector>

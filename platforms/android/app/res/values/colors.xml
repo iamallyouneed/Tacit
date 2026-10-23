@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="keyboard_background">#E5E8EB</color>
-    <color name="keyboard_key">#FAFBFC</color>
-    <color name="keyboard_text">#20272D</color>
-    <color name="keyboard_hint">#526478</color>
-    <color name="keyboard_pressed">#C5DCF3</color>
+    <color name="keyboard_background">#E9EFF5</color>
+    <color name="keyboard_key">#FCFDFF</color>
+    <color name="keyboard_text">#1B2C40</color>
+    <color name="keyboard_hint">#5B7088</color>
+    <color name="keyboard_pressed">#CADFF5</color>
+    <color name="keyboard_accent">#245FA8</color>
+    <color name="keyboard_border">#CFDAE6</color>
 </resources>

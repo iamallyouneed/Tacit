@@ -9,8 +9,13 @@ Korean version: [CHANGELOG.md](CHANGELOG.md).
 
 ## [Unreleased]
 
+### Added
+
+- Android keyboard tools for pasting the current clipboard, moving the cursor, choosing an input mode, and controlling haptics and key previews. Clipboard history is not stored, and sensitive content is hidden from previews.
+
 ### Changed
 
+- Refined Android keyboard light/dark surfaces and press feedback with the Tacit logo and Lucide icons. The selected reading appears first with a clear highlight; double-tapping Shift locks capitals, and Enter displays its current confirmation, search, send, or other action.
 - Plain confirmation now keeps unfinished readings in the language already shown, including Enter, shortcuts and session flushes. Standalone letters are classified before display, so English suffixes no longer depend on confirmation to fix a Korean preview. Japanese confirmation keeps the displayed segmentation and live candidate, completing only a pending Japanese `n` to `ん`; explicit language changes, Space conversion, Tab completion and newly typed digit context remain separate actions.
 
 ## [0.10.9] - 2026-10-23

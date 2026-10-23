@@ -35,7 +35,7 @@
         <Key android:codes="59" android:keyLabel=";" />
         <Key android:codes="33" android:keyLabel="!" />
         <Key android:codes="63" android:keyLabel="?" />
-        <Key android:codes="-5" android:keyLabel="⌫" android:keyWidth="15%p" android:isRepeatable="true" />
+        <Key android:codes="-5" android:keyIcon="@drawable/ic_delete" android:keyWidth="15%p" android:isRepeatable="true" />
     </Row>
     <Row>
         <Key android:codes="-103" android:keyLabel="abc" android:keyWidth="12%p" />

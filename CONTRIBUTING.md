@@ -31,6 +31,11 @@ Android APK를 빌드한 뒤 실행 중인 에뮬레이터·기기에서 JNI를 
 `./platforms/android/smoke.ps1 -Serial emulator-5554`를 실행합니다. 생성·활성화,
 영·한 입력, 일시 정지·재개와 해제를 검사하며 시스템 입력기 선택은 바꾸지 않습니다.
 
+키보드 UI는 격리된 에뮬레이터에서 `./platforms/android/ui-smoke.ps1 -Serial emulator-5560`으로
+검사합니다. 테스트 APK를 설치하고 Tacit을 잠시 선택한 뒤 기존 입력기를 복원하며, 실제
+조합·클립보드·선택 영역·대문자 고정·Enter·커서 전달을 검증합니다. 테스트용 편집 화면은
+`io.github.iamallyouneed.tacit.tests/io.github.iamallyouneed.tacit.KeyboardTestActivity`입니다.
+
 ```sh
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
@@ -136,6 +141,11 @@ You need Rust stable 1.89 or later. On every system these three must pass:
 After building the Android APK, run `./platforms/android/smoke.ps1 -Serial emulator-5554`
 against a running emulator/device to check JNI creation, activation, English/Korean input,
 pause/resume, reset and destruction. This does not change the system's selected input method.
+
+Run `./platforms/android/ui-smoke.ps1 -Serial emulator-5560` on an isolated emulator for keyboard UI
+checks. It installs the test APKs, temporarily selects Tacit, restores the previous IME, and checks
+real composition, clipboard/selection behavior, caps lock, Enter and cursor events. The separate
+test editor is `io.github.iamallyouneed.tacit.tests/io.github.iamallyouneed.tacit.KeyboardTestActivity`.
 
 ```sh
 cargo fmt --all -- --check
