@@ -286,10 +286,19 @@ exit 0
 # The encoded form of that call, for the UAC step: the elevated process gets the very text
 # this file is running, not a path a same-user process could swap in between.
 function Get-EncodedElevation([string]$Version, [bool]$Uninstall) {
-    $body = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($elevatedScript))
-    $call = "& ([scriptblock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$body'))))" +
-        " -Version '$Version' -Edition '$Edition'" + $(if ($Uninstall) { ' -Uninstall' })
-    [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($call))
+    # -EncodedCommand takes the script text itself as UTF-16LE base64. Encoding the script
+    # inside another encoded command doubled it past the 32,767-character Windows command
+    # line, and Start-Process failed with "The parameter is incorrect" before the UAC prompt.
+    # Pass what the param block would have taken as a short prelude instead.
+    $prelude = @(
+        "`$Version = '$Version'"
+        "`$Edition = '$Edition'"
+        "`$Uninstall = `$$(if ($Uninstall) { 'true' } else { 'false' })"
+        "`$LocalSource = `$false"
+        "`$Source = ''"
+    ) -join "`n"
+    $body = $elevatedScript -replace '(?m)^param\([^\r\n]*\)\r?\n', ''
+    [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($prelude + "`n" + $body))
 }
 
 if ($Elevated) {

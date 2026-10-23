@@ -34,6 +34,40 @@ try {
     $releaseInstall = @{ Reached = $false }
     & (Join-Path $unpacked 'install.ps1') -LocalSource
     if (-not $releaseInstall.Reached) { throw 'Official release installation was not reached' }
+    # -EncodedCommand must fit the 32,767-character Windows command line. Encoding the elevated
+    # script inside another encoded command doubled it and made Start-Process fail with "The
+    # parameter is incorrect" before the UAC prompt.
+    $installer = Get-Content (Join-Path $PSScriptRoot 'install.ps1') -Raw
+    $elevatedScript = [regex]::Match($installer, "(?s)\`$elevatedScript = @'\r?\n(.*?)\r?\n'@").Groups[1].Value
+    $function = [regex]::Match($installer, '(?s)function Get-EncodedElevation.*?\r?\n\}').Value
+    if (-not $elevatedScript -or -not $function) { throw 'Could not read the installer encoding' }
+    Invoke-Expression $function
+    $tokens = $null
+    $parseErrors = $null
+    $ast = [Management.Automation.Language.Parser]::ParseInput($elevatedScript, [ref]$tokens, [ref]$parseErrors)
+    if ($parseErrors.Count -or -not $ast.ParamBlock) { throw 'Invalid elevated installer' }
+    $body = $elevatedScript.Substring($ast.ParamBlock.Extent.EndOffset).TrimStart([char[]]"`r`n")
+    $powershell = (Get-Command powershell.exe).Source
+    $prefix = '"' + $powershell + '" -NoProfile -ExecutionPolicy Bypass -EncodedCommand '
+    foreach ($Edition in @('enko', 'enkoja')) {
+        foreach ($version in @('latest', 'v0.10.5', ('v1.' + ('0' * 61)))) {
+            foreach ($remove in @($false, $true)) {
+                $encoded = Get-EncodedElevation $version $remove
+                $length = $prefix.Length + $encoded.Length + 1 # includes the terminating NUL
+                if ($length -gt 32767) { throw "Elevated command exceeds Windows' limit: $length" }
+                $decoded = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($encoded))
+                [ScriptBlock]::Create($decoded) | Out-Null
+                if (-not $decoded.EndsWith($body, [StringComparison]::Ordinal)) { throw 'Elevated installer body changed' }
+                # Execute only the parameter prelude, never the installation or UAC path.
+                $prelude = $decoded.Substring(0, $decoded.Length - $body.Length)
+                $bound = & ([ScriptBlock]::Create($prelude + '; @{ Version=$Version; Edition=$Edition; Uninstall=$Uninstall; LocalSource=$LocalSource; Source=$Source }'))
+                if ($bound.Version -cne $version -or $bound.Edition -cne $Edition -or
+                    $bound.Uninstall -ne $remove -or $bound.LocalSource -ne $false -or $bound.Source -cne '') {
+                    throw 'Elevation arguments changed'
+                }
+            }
+        }
+    }
     Write-Host 'Legacy update: pinned release installer, flat assets and checksums passed.'
 } finally {
     $resolved = (Resolve-Path -LiteralPath $work).Path

@@ -20,6 +20,7 @@ Korean version: [CHANGELOG.md](CHANGELOG.md).
 
 ### Fixed
 
+- Windows release updates and removal no longer fail before the administrator prompt because the encoded installer exceeds the Windows command-line limit. The elevated script is encoded once, preserving release verification and the existing local installation path.
 - Require existing Korean vocabulary or inflection evidence before treating an overlapping Shift key as Korean, preserving case-sensitive Latin identifiers otherwise. The Korean exception no longer admits Japanese candidates. Unlisted Korean spellings with an overlapping Shift key now keep their Latin keys until explicitly corrected; normal Korean key spelling remains available.
 
 ## [0.10.9] - 2026-10-23
