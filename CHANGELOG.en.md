@@ -9,6 +9,8 @@ Korean version: [CHANGELOG.md](CHANGELOG.md).
 
 ## [Unreleased]
 
+## [0.10.9] - 2026-10-23
+
 ### Added
 
 - Android keyboard tools for pasting the current clipboard, moving the cursor, choosing an input mode, and controlling haptics and key previews. Clipboard history is not stored, and sensitive content is hidden from previews.
@@ -21,15 +23,9 @@ Korean version: [CHANGELOG.md](CHANGELOG.md).
 ### Fixed
 
 - Windows release updates and removal no longer fail before the administrator prompt because the encoded installer exceeds the Windows command-line limit. The elevated script is encoded once, preserving release verification and the existing local installation path.
-- Require existing Korean vocabulary or inflection evidence before treating an overlapping Shift key as Korean, preserving case-sensitive Latin identifiers otherwise. The Korean exception no longer admits Japanese candidates. Unlisted Korean spellings with an overlapping Shift key now keep their Latin keys until explicitly corrected; normal Korean key spelling remains available.
-
-## [0.10.9] - 2026-10-23
-
-### Fixed
-
+- Overlapping Shift input such as `akfgkfRK` now stays Korean (`말할까`) when supported by existing vocabulary or inflections; otherwise, case-sensitive Latin identifiers are preserved. The Korean exception no longer admits Japanese candidates. Unlisted Korean spellings with an overlapping Shift key now keep their Latin keys until explicitly corrected; normal Korean key spelling remains available.
 - Generalized correction preferences now apply only to the actual runner-up language. This prevents a Korean preference from turning English into Japanese or broken Hangul when Japanese is enabled, while preserving explicitly learned words.
 - Confirmation with Space or Enter keeps the language of a completed composition. This fixes `연습햇` becoming `연습got` and Japanese previews becoming English or Korean, while preserving explicit language cycling and Japanese candidate conversion.
-- A vowel typed while Shift overlaps a preceding Korean doubled consonant is scored normally instead of being categorically classified as English. This fixes `말할까` becoming `akfgkfRK`, while preserving the original keys and English capitalization.
 
 ## [0.10.8] - 2026-10-22
 
