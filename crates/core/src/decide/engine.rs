@@ -374,27 +374,46 @@ impl DecisionEngine for HeuristicEngine {
     fn decide(&self, keys: &str, context: &DecisionContext) -> Decision {
         let mut previous = '\0';
         let mut has_lowercase = false;
+        let mut shift_overlap = false;
         let english_capital = self.english_on
             // Keep ordinary lowercase typing on the existing fast path.
             && keys
                 .chars()
                 .any(|c| c.is_uppercase() && !DubeolsikLayout::is_korean_shift_key(c))
             && keys.chars().any(|c| {
-                // Shift may overlap the vowel after a doubled consonant; let the models judge it.
+                // Shift may overlap the vowel after a doubled consonant; verify its Korean evidence below.
                 let overlap = self.korean_on
                     && has_lowercase
                     && matches!(previous, 'Q' | 'W' | 'E' | 'R' | 'T')
                     && DubeolsikLayout::jamo(c).is_some_and(is_vowel);
+                shift_overlap |= c.is_uppercase()
+                    && !DubeolsikLayout::is_korean_shift_key(c)
+                    && overlap;
                 previous = c;
                 has_lowercase |= c.is_ascii_lowercase();
                 c.is_uppercase() && !DubeolsikLayout::is_korean_shift_key(c) && !overlap
             });
-        if english_capital {
+        // Syllable likelihood alone also accepts identifiers; require existing Korean lexical evidence.
+        let korean_overlap = !shift_overlap
+            || HangulComposer::compose(keys).is_some_and(|composed| {
+                if composed.is_broken() {
+                    return false;
+                }
+                let text = composed.text();
+                self.korean.is_known_word_or_inflected(&text)
+                    || self.korean.is_vocabulary_word(&text)
+            });
+        if english_capital || !korean_overlap {
             return Decision {
                 language: Language::English,
                 confidence: CAPITALISED_ENGLISH_CONFIDENCE,
                 output: keys.to_string(),
-                explanation: "uppercase outside QWERTOP".to_string(),
+                explanation: if english_capital {
+                    "uppercase outside QWERTOP"
+                } else {
+                    "Shift overlap without Korean lexical evidence"
+                }
+                .to_string(),
                 runner_up: None,
             };
         }
@@ -438,6 +457,8 @@ impl DecisionEngine for HeuristicEngine {
         #[cfg(feature = "japanese")]
         let j = self
             .japanese
+            // Korean Shift evidence only admits a Korean reading, not unrelated Japanese candidates.
+            .filter(|_| !shift_overlap)
             .and_then(|model| model.score(keys, context.partial && !known));
         // English words inside a Japanese phrase (googlede…) score as segmented Japanese,
         // not as kana with stray letters.

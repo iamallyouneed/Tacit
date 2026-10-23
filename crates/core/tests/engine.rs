@@ -87,7 +87,7 @@ fn shift_overlap_uses_korean_scores_without_losing_english_case() {
     let e = heuristic();
     for partial in [true, false] {
         let context = DecisionContext { partial, ..ctx() };
-        for keys in ["akfgkfRk", "akfgkfRK", "gkfRK", "dlfRK"] {
+        for keys in ["akfgkfRk", "akfgkfRK", "gkfRK", "dlfRk"] {
             let d = e.decide(keys, &context);
             assert_eq!(d.language, Language::Korean, "{keys}: {d:?}");
             assert_eq!(
@@ -105,6 +105,81 @@ fn shift_overlap_uses_korean_scores_without_losing_english_case() {
             assert_eq!(d.language, Language::English, "{keys}: {d:?}");
             assert_eq!(d.output, keys);
         }
+    }
+}
+
+#[test]
+fn shift_overlap_preserves_matching_latin_identifiers() {
+    let mut failures = Vec::new();
+    for japanese in [false, true] {
+        let languages = Languages::legacy(japanese);
+        let e = HeuristicEngine::for_languages(&languages);
+        for partial in [true, false] {
+            let context = DecisionContext { partial, ..ctx() };
+            // These intended identifiers enter the same Shift-overlap gate as Korean input.
+            for keys in [
+                "cmdWL", "rmWL", "dmlWL", "turnsRI", "cmdWLr", "rmWLr", "dmlWLr", "cmdWLfoo",
+            ] {
+                let d = e.decide(keys, &context);
+                if d.language != Language::English || d.output != keys {
+                    failures.push(format!(
+                        "languages={:?}, partial={partial}, {keys}: {d:?}",
+                        languages.ids()
+                    ));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn shift_overlap_retains_korean_positive_cases() {
+    for japanese in [false, true] {
+        let e = HeuristicEngine::for_languages(&Languages::legacy(japanese));
+        for partial in [true, false] {
+            let context = DecisionContext { partial, ..ctx() };
+            for (keys, text) in [("akfgkfRK", "말할까"), ("smfWlr", "늘찍")] {
+                let d = e.decide(keys, &context);
+                assert_eq!(d.language, Language::Korean, "{keys}: {d:?}");
+                assert_eq!(d.output, text, "{keys}: {d:?}");
+                assert_eq!(e.render(keys, Language::English), keys);
+            }
+        }
+    }
+}
+
+#[test]
+fn shift_overlap_without_lexical_evidence_preserves_case() {
+    for japanese in [false, true] {
+        let e = HeuristicEngine::for_languages(&Languages::legacy(japanese));
+        for partial in [true, false] {
+            // An unlisted Korean spelling is ambiguous too; it needs canonical keys or explicit correction.
+            for keys in ["smfWLr", "dlfRK", "yukiRI"] {
+                let d = e.decide(keys, &DecisionContext { partial, ..ctx() });
+                assert_eq!(d.language, Language::English, "{keys}: {d:?}");
+                assert_eq!(d.output, keys);
+            }
+        }
+    }
+}
+
+#[cfg(feature = "japanese")]
+#[test]
+fn korean_shift_evidence_does_not_admit_japanese() {
+    let mut e = HeuristicEngine::for_languages(&Languages::legacy(true));
+    // Even an overwhelming Japanese score cannot use a Korean-specific exception.
+    e.japanese_offset = 100.0;
+    for partial in [true, false] {
+        let d = e.decide("akfgkfRK", &DecisionContext { partial, ..ctx() });
+        assert_eq!(d.language, Language::Korean, "{d:?}");
+        assert_eq!(d.output, "말할까");
+    }
+    let e = HeuristicEngine::for_languages(&Languages::from_ids(&["en", "ja"]).unwrap());
+    for keys in ["cmdWL", "rmWL", "dmlWL", "turnsRI", "yukiRI"] {
+        let d = e.decide(keys, &ctx());
+        assert_eq!(d.language, Language::English, "{keys}: {d:?}");
+        assert_eq!(d.output, keys);
     }
 }
 

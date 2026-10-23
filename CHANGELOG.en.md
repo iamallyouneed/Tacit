@@ -9,6 +9,10 @@ Korean version: [CHANGELOG.md](CHANGELOG.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- Require existing Korean vocabulary or inflection evidence before treating an overlapping Shift key as Korean, preserving case-sensitive Latin identifiers otherwise. The Korean exception no longer admits Japanese candidates. Unlisted Korean spellings with an overlapping Shift key now keep their Latin keys until explicitly corrected; normal Korean key spelling remains available.
+
 ### Changed
 
 - Plain confirmation now keeps unfinished readings in the language already shown, including Enter, shortcuts and session flushes. Standalone letters are classified before display, so English suffixes no longer depend on confirmation to fix a Korean preview. Japanese confirmation keeps the displayed segmentation and live candidate, completing only a pending Japanese `n` to `ん`; explicit language changes, Space conversion, Tab completion and newly typed digit context remain separate actions.
