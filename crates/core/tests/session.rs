@@ -320,6 +320,35 @@ fn confirmation_keeps_the_visible_korean_reading() {
 }
 
 #[test]
+fn shift_overlap_identifiers_keep_case_and_allow_explicit_korean() {
+    for keys in ["cmdWL", "rmWL", "dmlWL", "turnsRI", "smfWLr", "dlfRK"] {
+        for correct in [false, true] {
+            let mut r = Rig::new("shift-overlap-identifiers");
+            r.field.insert_text("앞😀  뒤", None);
+            r.field.cursor = "앞😀 ".encode_utf16().count();
+            r.type_(keys);
+            assert_eq!(r.text(), format!("앞😀 {keys} 뒤"));
+            let expected = if correct {
+                r.key(Key::Escape);
+                tacit_core::lang::hangul::HangulComposer::compose(keys)
+                    .unwrap()
+                    .text()
+            } else {
+                keys.to_string()
+            };
+            assert_eq!(r.text(), format!("앞😀 {expected} 뒤"));
+            assert!(r.key(Key::Enter));
+            assert_eq!(r.text(), format!("앞😀 {expected} 뒤"));
+            assert!(!r.composing());
+            assert_eq!(
+                r.field.selected_range().location,
+                format!("앞😀 {expected}").encode_utf16().count()
+            );
+        }
+    }
+}
+
+#[test]
 fn confirmation_keeps_incomplete_previews() {
     let mut changes = Vec::new();
     for script in [

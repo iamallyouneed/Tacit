@@ -502,6 +502,12 @@ mod tests {
         for (keys, shown) in [
             ("dustmqgot", "연습햇"),
             ("akfgkfRK", "말할까"),
+            ("cmdWL", "cmdWL"),
+            ("rmWL", "rmWL"),
+            ("dmlWL", "dmlWL"),
+            ("turnsRI", "turnsRI"),
+            ("cmdWLr", "cmdWLr"),
+            ("smfWLr", "smfWLr"),
             ("d", "d"),
             ("Tom's", "Tom's"),
             ("dkssud d", "안녕 ㅇ"),

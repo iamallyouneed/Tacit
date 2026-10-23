@@ -1,17 +1,27 @@
 package io.github.iamallyouneed.tacit;
 
+import android.content.ClipData;
+import android.content.ClipDescription;
+import android.content.ClipboardManager;
 import android.inputmethodservice.InputMethodService;
 import android.inputmethodservice.Keyboard;
 import android.inputmethodservice.KeyboardView;
 import android.text.InputType;
+import android.text.TextUtils;
+import android.os.SystemClock;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.LinearLayout;
+import android.widget.Button;
+import android.widget.ImageButton;
+import android.widget.PopupMenu;
 import android.widget.TextView;
 
 import java.util.HashSet;
@@ -41,6 +51,20 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
     private String shownReadings;
     private Keyboard letters;
     private Keyboard symbols;
+    private View clipboardPanel;
+    private TextView clipboardPreview;
+    private Button clipboardPaste;
+    private ImageButton toolsToggle;
+    private boolean toolsOpen;
+    private boolean cursorTools;
+    private boolean hapticsEnabled = true;
+    private boolean keyPreviewEnabled = true;
+    private boolean capsLocked;
+    private long lastShiftTap;
+    private ClipboardManager clipboardManager;
+    private final ClipboardManager.OnPrimaryClipChangedListener clipboardChanged = () -> {
+        if (clipboardPanel != null && clipboardPanel.getVisibility() == View.VISIBLE) openClipboard();
+    };
 
     @Override
     public void onCreate() {
@@ -50,6 +74,7 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
 
     @Override
     public void onDestroy() {
+        closeClipboard();
         Native.nativeDestroy(ime);
         ime = 0;
         super.onDestroy();
@@ -61,10 +86,38 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
         symbols = new Keyboard(this, R.xml.symbols);
         View root = getLayoutInflater().inflate(R.layout.input, null);
         readingsView = root.findViewById(R.id.readings);
+        toolsToggle = root.findViewById(R.id.tools_toggle);
+        clipboardPanel = root.findViewById(R.id.clipboard_panel);
+        clipboardPreview = root.findViewById(R.id.clipboard_preview);
+        clipboardPaste = root.findViewById(R.id.clipboard_paste);
+        clipboardManager = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        hapticsEnabled = getSharedPreferences("keyboard", MODE_PRIVATE).getBoolean("haptics", true);
+        keyPreviewEnabled = getSharedPreferences("keyboard", MODE_PRIVATE).getBoolean("preview", true);
+        shownReadings = null;
         keyboardView = root.findViewById(R.id.keyboard);
         keyboardView.setOnKeyboardActionListener(this);
-        keyboardView.setPreviewEnabled(false);
+        keyboardView.setPreviewEnabled(keyPreviewEnabled);
         keyboardView.setKeyboard(letters);
+        toolsToggle.setOnClickListener(v -> {
+            feedback();
+            if (clipboardPanel.getVisibility() == View.VISIBLE) {
+                closeClipboard();
+                refresh();
+            } else if (!active || Native.nativeReadings(ime).isEmpty()) {
+                requestHideSelf(0);
+            } else {
+                toolsOpen = !toolsOpen;
+                cursorTools = false;
+                showReadings();
+            }
+        });
+        root.findViewById(R.id.keyboard_menu).setOnClickListener(v -> showModeMenu(v));
+        root.findViewById(R.id.clipboard_close).setOnClickListener(v -> {
+            feedback();
+            closeClipboard();
+            refresh();
+        });
+        clipboardPaste.setOnClickListener(v -> pasteClipboard());
 
         return root;
     }
@@ -75,14 +128,20 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
         active = ime != 0 && isTextField(info);
         composing = false;
         swallowed.clear();
+        toolsOpen = false;
+        closeClipboard();
         if (active) Native.nativeActivate(ime, info.packageName);
     }
 
     @Override
     public void onStartInputView(EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
+        closeClipboard();
         if (keyboardView != null) {
+            capsLocked = false;
+            lastShiftTap = 0;
             letters.setShifted(false);
+            updateShiftLabel();
             keyboardView.setKeyboard(letters);
         }
         refresh();
@@ -90,11 +149,18 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
 
     @Override
     public void onFinishInput() {
+        closeClipboard();
         composing = false;
         InputConnection ic = getCurrentInputConnection();
         if (ic != null) ic.finishComposingText();
         if (ime != 0) Native.nativeReset(ime);
         super.onFinishInput();
+    }
+
+    @Override
+    public void onFinishInputView(boolean finishingInput) {
+        closeClipboard();
+        super.onFinishInputView(finishingInput);
     }
 
     @Override
@@ -209,7 +275,17 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
     public void onKey(int code, int[] keyCodes) {
         switch (code) {
             case Keyboard.KEYCODE_SHIFT:
-                letters.setShifted(!letters.isShifted());
+                long now = SystemClock.uptimeMillis();
+                if (capsLocked) {
+                    capsLocked = false;
+                    letters.setShifted(false);
+                } else if (letters.isShifted() && now - lastShiftTap < 350) {
+                    capsLocked = true;
+                } else {
+                    letters.setShifted(!letters.isShifted());
+                }
+                lastShiftTap = now;
+                updateShiftLabel();
                 keyboardView.invalidateAllKeys();
                 return;
             case CODE_SYMBOLS:
@@ -238,8 +314,9 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
         if (Character.isLetter(c)) {
             boolean shifted = keyboardView.getKeyboard() == letters && letters.isShifted();
             soft(Native.LETTER, shifted ? Character.toUpperCase(c) : c, 0);
-            if (shifted) {
+            if (shifted && !capsLocked) {
                 letters.setShifted(false); // one capital at a time
+                updateShiftLabel();
                 keyboardView.invalidateAllKeys();
             }
         } else {
@@ -259,7 +336,9 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
     }
 
     @Override
-    public void onPress(int primaryCode) {}
+    public void onPress(int primaryCode) {
+        feedback();
+    }
 
     @Override
     public void onRelease(int primaryCode) {}
@@ -283,48 +362,261 @@ public class TacitIme extends InputMethodService implements KeyboardView.OnKeybo
     private void refresh() {
         if (keyboardView == null || ime == 0) return;
         int mode = active ? Native.nativeMode(ime) : Native.MODE_AUTO;
-        String label = modeLabel(mode);
+        String label = active ? "한/영" : "ABC";
+        boolean changed = false;
         for (Keyboard board : new Keyboard[] {letters, symbols}) {
             for (Keyboard.Key key : board.getKeys()) {
-                if (key.codes[0] == CODE_MODE) key.label = label;
+                String next = null;
+                if (key.codes[0] == CODE_MODE) next = label;
+                if (key.codes[0] == 32) next = "tacit · " + (active ? modeLabel(mode) : "English");
+                if (key.codes[0] == 10) {
+                    String action = enterLabel();
+                    CharSequence text = "⏎".equals(action) ? null : action;
+                    if (!TextUtils.equals(key.label, text) || (text == null && key.icon == null)) {
+                        key.label = text;
+                        key.icon = text == null ? getDrawable(R.drawable.ic_corner_down_left) : null;
+                        changed = true;
+                    }
+                    key.on = true;
+                    continue;
+                }
+                if (next != null && !next.contentEquals(key.label)) {
+                    key.label = next;
+                    changed = true;
+                }
             }
         }
-        keyboardView.setMode(mode);
+        keyboardView.setMode(active ? mode : Native.MODE_ENGLISH);
+        if (changed) keyboardView.invalidateAllKeys();
         showReadings();
     }
 
-    private static String modeLabel(int mode) {
+    private String modeLabel(int mode) {
         switch (mode) {
             case Native.MODE_KOREAN:
-                return "한";
+                return getString(R.string.mode_korean);
             case Native.MODE_ENGLISH:
-                return "영";
+                return "English";
             default:
-                return "tacit";
+                return getString(R.string.mode_auto);
+        }
+    }
+
+    private String enterLabel() {
+        if (composing) return getString(R.string.confirm);
+        EditorInfo info = getCurrentInputEditorInfo();
+        if (info == null || (info.imeOptions & EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0) return "⏎";
+        switch (info.imeOptions & EditorInfo.IME_MASK_ACTION) {
+            case EditorInfo.IME_ACTION_SEARCH: return getString(R.string.action_search);
+            case EditorInfo.IME_ACTION_SEND: return getString(R.string.action_send);
+            case EditorInfo.IME_ACTION_NEXT: return getString(R.string.action_next);
+            case EditorInfo.IME_ACTION_DONE: return getString(R.string.action_done);
+            case EditorInfo.IME_ACTION_GO: return getString(R.string.action_go);
+            case EditorInfo.IME_ACTION_PREVIOUS: return getString(R.string.action_previous);
+            default: return "⏎";
+        }
+    }
+
+    private void updateShiftLabel() {
+        for (Keyboard.Key key : letters.getKeys()) {
+            if (key.codes[0] == Keyboard.KEYCODE_SHIFT) {
+                key.label = null;
+                key.icon = getDrawable(capsLocked ? R.drawable.ic_arrow_big_up_dash : R.drawable.ic_arrow_big_up);
+                key.on = letters.isShifted();
+            }
+        }
+    }
+
+    private void feedback() {
+        if (hapticsEnabled && keyboardView != null) {
+            keyboardView.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
         }
     }
 
     private void showReadings() {
         String readings = active ? Native.nativeReadings(ime) : "";
-        if (readings.equals(shownReadings)) return; // same chips: no rebuild per key
-        shownReadings = readings;
+        boolean clipboard = clipboardPanel.getVisibility() == View.VISIBLE;
+        boolean tools = clipboard || toolsOpen || readings.isEmpty();
+        String state = tools ? "tools:" + cursorTools + ":" + clipboard : readings;
+        toolsToggle.setImageResource(clipboard ? R.drawable.ic_keyboard : readings.isEmpty()
+                ? R.drawable.ic_chevron_down : toolsOpen ? R.drawable.ic_chevron_left : R.drawable.ic_ellipsis);
+        toolsToggle.setContentDescription(getString(clipboard ? R.string.back_to_keyboard : readings.isEmpty()
+                ? R.string.hide_keyboard : toolsOpen ? R.string.readings : R.string.tools));
+        if (state.equals(shownReadings)) return; // same controls: no rebuild per key
+        shownReadings = state;
         readingsView.removeAllViews();
-        if (!active) return;
+        if (tools) {
+            if (cursorTools) {
+                addStripIcon(R.drawable.ic_chevron_left, R.string.tools, v -> { cursorTools = false; showReadings(); });
+                addStripIcon(R.drawable.ic_arrow_left, R.string.cursor_left, v -> moveCursor(KeyEvent.KEYCODE_DPAD_LEFT));
+                addStripIcon(R.drawable.ic_arrow_right, R.string.cursor_right, v -> moveCursor(KeyEvent.KEYCODE_DPAD_RIGHT));
+            } else {
+                ImageButton clip = addStripIcon(R.drawable.ic_clipboard, R.string.clipboard, v -> openClipboard());
+                clip.setSelected(clipboard);
+                addStripIcon(R.drawable.ic_move_horizontal, R.string.cursor_tools, v -> { cursorTools = true; showReadings(); });
+                addStripIcon(R.drawable.ic_settings_2, R.string.keyboard_settings, v -> showSettings(v));
+            }
+            return;
+        }
         String[] parts = readings.split("\u0001");
+        for (boolean selected : new boolean[] {true, false}) {
+            for (int i = 1; i < parts.length; i++) {
+                if ((parts[i].charAt(0) == '1') != selected) continue;
+                addReading(parts[i].substring(1), selected, i - 1);
+            }
+        }
+    }
+
+    private ImageButton addStripIcon(int icon, int description, View.OnClickListener action) {
+        ImageButton button = new ImageButton(this);
+        button.setImageResource(icon);
+        button.setContentDescription(getString(description));
+        int padding = (int) (12 * getResources().getDisplayMetrics().density);
+        button.setPadding(padding, padding, padding, padding);
+        button.setScaleType(android.widget.ImageView.ScaleType.CENTER);
+        button.setMinimumWidth(padding * 4);
+        button.setBackgroundResource(R.drawable.reading_chip);
+        button.setOnClickListener(v -> { feedback(); action.onClick(v); });
+        readingsView.addView(button, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
+        return button;
+    }
+
+    private void showModeMenu(View anchor) {
+        feedback();
+        PopupMenu menu = new PopupMenu(this, anchor);
+        for (int mode = Native.MODE_AUTO; mode <= Native.MODE_ENGLISH; mode++) {
+            menu.getMenu().add(0, mode, mode, modeLabel(mode)).setCheckable(true)
+                    .setChecked(active && Native.nativeMode(ime) == mode).setEnabled(active);
+        }
+        menu.getMenu().setGroupCheckable(0, true, true);
+        menu.setOnMenuItemClickListener(item -> {
+            InputConnection ic = getCurrentInputConnection();
+            if (ic == null || !active) return false;
+            for (int i = 0; i < 3 && Native.nativeMode(ime) != item.getItemId(); i++) {
+                apply(ic, Native.nativeCycleMode(ime, before(ic)));
+            }
+            refresh();
+            return true;
+        });
+        menu.show();
+    }
+
+    private void showSettings(View anchor) {
+        PopupMenu menu = new PopupMenu(this, anchor);
+        menu.getMenu().add(0, 1, 0, R.string.haptics).setCheckable(true).setChecked(hapticsEnabled);
+        menu.getMenu().add(0, 2, 1, R.string.key_preview).setCheckable(true).setChecked(keyPreviewEnabled);
+        menu.getMenu().add(0, 3, 2, R.string.choose_keyboard);
+        menu.setOnMenuItemClickListener(item -> {
+            if (item.getItemId() == 1) {
+                hapticsEnabled = !hapticsEnabled;
+                getSharedPreferences("keyboard", MODE_PRIVATE).edit().putBoolean("haptics", hapticsEnabled).apply();
+            } else if (item.getItemId() == 2) {
+                keyPreviewEnabled = !keyPreviewEnabled;
+                keyboardView.setPreviewEnabled(keyPreviewEnabled);
+                getSharedPreferences("keyboard", MODE_PRIVATE).edit().putBoolean("preview", keyPreviewEnabled).apply();
+            } else {
+                InputMethodManager manager = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+                if (manager != null) manager.showInputMethodPicker();
+            }
+            return true;
+        });
+        menu.show();
+    }
+
+    private void addReading(String label, boolean selected, int index) {
         float density = getResources().getDisplayMetrics().density;
-        for (int i = 1; i < parts.length; i++) {
-            final int index = i - 1;
-            TextView chip = new TextView(this);
-            chip.setText(parts[i].substring(1));
-            chip.setSelected(parts[i].charAt(0) == '1');
-            chip.setTextColor(getColor(R.color.keyboard_text));
-            chip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
-            chip.setGravity(Gravity.CENTER);
-            chip.setBackgroundResource(R.drawable.reading_chip);
-            chip.setPadding((int) (14 * density), 0, (int) (14 * density), 0);
-            chip.setOnClickListener(v -> chooseReading(index));
-            readingsView.addView(chip, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT));
+        Button button = new Button(this);
+        button.setText(label);
+        button.setAllCaps(false);
+        button.setSelected(selected);
+        button.setTextColor(getColor(selected ? R.color.keyboard_accent : R.color.keyboard_text));
+        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        button.setMinWidth((int) (48 * density));
+        button.setPadding((int) (12 * density), 0, (int) (12 * density), 0);
+        button.setGravity(Gravity.CENTER);
+        button.setBackgroundResource(R.drawable.reading_chip);
+        button.setOnClickListener(v -> { feedback(); chooseReading(index); });
+        readingsView.addView(button, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.MATCH_PARENT));
+    }
+
+    private void moveCursor(int code) {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return;
+        if (active) apply(ic, Native.nativeKey(ime, Native.OTHER, 0, before(ic)));
+        sendDownUpKeyEvents(code);
+        refresh();
+    }
+
+    private void closeClipboard() {
+        if (clipboardPanel == null) return;
+        if (clipboardManager != null) clipboardManager.removePrimaryClipChangedListener(clipboardChanged);
+        clipboardPanel.setVisibility(View.GONE);
+        clipboardPreview.setText("");
+        keyboardView.setVisibility(View.VISIBLE);
+        toolsOpen = false;
+        cursorTools = false;
+    }
+
+    private ClipData clipboardText() {
+        return clipboardManager == null ? null : clipboardManager.getPrimaryClip();
+    }
+
+    private void openClipboard() {
+        clipboardPanel.getLayoutParams().height = Math.max(keyboardView.getHeight(),
+                (int) (236 * getResources().getDisplayMetrics().density));
+        keyboardView.setVisibility(View.INVISIBLE); // keep the panel and keyboard at the same height
+        clipboardPanel.setVisibility(View.VISIBLE);
+        showReadings();
+        if (clipboardManager != null) {
+            clipboardManager.removePrimaryClipChangedListener(clipboardChanged);
+            clipboardManager.addPrimaryClipChangedListener(clipboardChanged);
+        }
+        try {
+            ClipData clip = clipboardText();
+            CharSequence text = clip == null || clip.getItemCount() == 0 ? null : clip.getItemAt(0).getText();
+            clipboardPaste.setEnabled(text != null && text.length() > 0);
+            if (!clipboardPaste.isEnabled()) {
+                clipboardPreview.setText(R.string.clipboard_empty);
+                return;
+            }
+            boolean sensitive = !active || (clip.getDescription().getExtras() != null
+                    && clip.getDescription().getExtras().getBoolean(ClipDescription.EXTRA_IS_SENSITIVE));
+            if (sensitive) {
+                clipboardPreview.setText(R.string.clipboard_private);
+            } else {
+                String preview = text.toString();
+                if (preview.length() > 500) {
+                    int end = Character.isHighSurrogate(preview.charAt(499)) ? 499 : 500;
+                    preview = preview.substring(0, end) + "…";
+                }
+                clipboardPreview.setText(preview);
+            }
+        } catch (SecurityException denied) {
+            clipboardPreview.setText(R.string.clipboard_unavailable);
+            clipboardPaste.setEnabled(false);
+        }
+    }
+
+    private void pasteClipboard() {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return;
+        try {
+            ClipData clip = clipboardText(); // paste the current clipboard, not a stale preview
+            CharSequence text = clip == null || clip.getItemCount() == 0 ? null : clip.getItemAt(0).getText();
+            if (text == null || text.length() == 0) { openClipboard(); return; }
+            feedback();
+            if (active) apply(ic, Native.nativeKey(ime, Native.OTHER, 0, before(ic)));
+            if (!ic.commitText(text.toString(), 1)) {
+                clipboardPreview.setText(R.string.paste_unavailable);
+                return;
+            }
+            closeClipboard();
+            refresh();
+        } catch (SecurityException denied) {
+            clipboardPreview.setText(R.string.clipboard_unavailable);
+            clipboardPaste.setEnabled(false);
         }
     }
 
