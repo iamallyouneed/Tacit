@@ -441,14 +441,282 @@ fn confirmation_does_not_reclassify_incomplete_jamo() {
         assert!(engine.pending().is_empty());
         assert!(engine.learned().is_empty());
     }
-    // An explicit override still uses the final engine decision for learning.
-    let (mut r, engine) = rig();
-    r.type_("rr⎋");
-    assert_eq!(r.text(), "rr");
-    r.key(Key::Enter);
-    assert_eq!(r.text(), "rr");
-    assert!(engine.pending().is_empty());
+    // Correcting the unchanged displayed Korean is evidence for English, even though
+    // final scoring would independently choose English.
+    let path = lexicon_path("confirm-rr-origin");
+    let _ = std::fs::remove_file(&path);
+    let engine = Arc::new(LearningEngine::new(
+        Box::new(Unfinished),
+        Some(path.clone()),
+    ));
+    let mut r = Rig {
+        session: InputSession::new(engine.clone(), AppPolicies::default(), true),
+        field: FakeTextField::new(),
+    };
+    r.type_("rr⎋ ");
+    assert_eq!(r.text(), "rr ");
+    assert_eq!(engine.pending().get("rr"), Some(&Language::English));
     assert!(engine.learned().is_empty());
+    r.type_("rr⎋ ");
+    assert_eq!(r.text(), "rr rr ");
+    assert_eq!(engine.learned().get("rr"), Some(&Language::English));
+    drop(r);
+    drop(engine);
+    // Reopen the same file; engine(name) would delete the evidence under test.
+    let reopened = Arc::new(LearningEngine::new(Box::new(Unfinished), Some(path)));
+    assert_eq!(reopened.learned().get("rr"), Some(&Language::English));
+    let mut r = Rig {
+        session: InputSession::new(reopened, AppPolicies::default(), true),
+        field: FakeTextField::new(),
+    };
+    r.type_("rr ");
+    assert_eq!(r.text(), "rr ");
+}
+
+// A deterministic partial/final disagreement, with separately controlled digit confidence.
+// Record the actual final query so edited-token tests cannot pass using a stale prefix.
+type ConfirmationQueries = Arc<std::sync::Mutex<Vec<(String, tacit_core::DecisionContext)>>>;
+
+struct ConfirmationEngine {
+    digit_confidence: f64,
+    queries: ConfirmationQueries,
+}
+
+impl tacit_core::DecisionEngine for ConfirmationEngine {
+    fn decide(&self, keys: &str, context: &tacit_core::DecisionContext) -> tacit_core::Decision {
+        self.queries
+            .lock()
+            .unwrap()
+            .push((keys.to_owned(), *context));
+        tacit_core::Decision {
+            language: if context.partial {
+                tacit_core::Language::Korean
+            } else {
+                tacit_core::Language::English
+            },
+            confidence: if context.before_digit {
+                self.digit_confidence
+            } else {
+                1.0
+            },
+            output: keys.to_owned(),
+            explanation: String::new(),
+            runner_up: None,
+        }
+    }
+}
+
+fn confirmation_rig(name: &str, digit_confidence: f64) -> (Rig, ConfirmationQueries) {
+    let path = lexicon_path(name);
+    let _ = std::fs::remove_file(&path);
+    let queries = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let engine = Arc::new(LearningEngine::new(
+        Box::new(ConfirmationEngine {
+            digit_confidence,
+            queries: queries.clone(),
+        }),
+        Some(path),
+    ));
+    (
+        Rig {
+            session: InputSession::new(engine, AppPolicies::default(), true),
+            field: FakeTextField::new(),
+        },
+        queries,
+    )
+}
+
+#[test]
+fn correction_captures_pinned_reading_before_unpinning() {
+    use tacit_core::Language;
+    for correct in [false, true] {
+        let (mut r, _) = confirmation_rig(&format!("origin-pin-{correct}"), 1.0);
+        r.type_("rr⌫");
+        assert_eq!(r.session.keys(), "r");
+        assert_eq!(r.text(), "ㄱ");
+        if correct {
+            assert!(r.key(Key::Cycle));
+            assert_eq!(r.text(), "r");
+        }
+        assert!(r.key(Key::Enter));
+        assert_eq!(r.text(), if correct { "r" } else { "ㄱ" });
+        assert_eq!(
+            r.session.engine().pending().get("r"),
+            correct.then_some(&Language::English)
+        );
+        assert!(r.session.engine().learned().is_empty());
+    }
+}
+
+#[test]
+fn edited_correction_uses_current_final_keys_without_recapturing_origin() {
+    for (edit, keys) in [("r", "rrr"), ("⌫", "r"), ("⌫r", "rr")] {
+        for cycle_again in [false, true] {
+            let (mut r, queries) =
+                confirmation_rig(&format!("origin-edit-{keys}-{cycle_again}-{edit}"), 1.0);
+            r.type_("rr⎋");
+            assert_eq!(r.text(), "rr");
+            r.type_(edit);
+            assert_eq!(r.session.keys(), keys);
+            if cycle_again {
+                // Returning to English must not recapture the Korean intermediate reading.
+                r.type_("⎋⎋");
+            }
+            assert_eq!(r.text(), keys);
+            queries.lock().unwrap().clear();
+            r.key(Key::Enter);
+            assert_eq!(r.text(), keys);
+            assert!(queries
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(seen, ctx)| seen == keys && !ctx.partial && !ctx.before_digit));
+            assert!(r.session.engine().pending().is_empty());
+            assert!(r.session.engine().learned().is_empty());
+        }
+    }
+}
+
+#[test]
+fn unchanged_correction_cycles_keep_first_origin_and_count_one_word() {
+    use tacit_core::Language;
+    for (cycles, corrected) in [(2, false), (3, true), (5, true)] {
+        let (mut r, _) = confirmation_rig(&format!("origin-cycles-{cycles}"), 1.0);
+        r.type_("rr");
+        assert_eq!(r.text(), "ㄱㄱ");
+        for _ in 0..cycles {
+            assert!(r.key(Key::Cycle));
+        }
+        r.type_(" ");
+        assert_eq!(r.text(), if corrected { "rr " } else { "ㄱㄱ " });
+        assert_eq!(
+            r.session.engine().pending().get("rr"),
+            corrected.then_some(&Language::English)
+        );
+        assert!(r.session.engine().learned().is_empty());
+    }
+}
+
+#[test]
+fn correction_origin_is_invalidated_by_activation_pause_and_empty_reset() {
+    for transition in ["activate", "pause", "empty"] {
+        let (mut r, queries) = confirmation_rig(&format!("origin-lifecycle-{transition}"), 1.0);
+        r.type_("rr⎋");
+        assert_eq!(r.text(), "rr");
+        match transition {
+            "activate" => {
+                r.session.activate(Some("test.origin.other"));
+                queries.lock().unwrap().clear();
+                r.key(Key::Enter);
+                assert_eq!(r.text(), "rr");
+                assert!(queries
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|(keys, ctx)| keys == "rr"
+                        && !ctx.partial
+                        && ctx.previous_language.is_none()));
+            }
+            "pause" => {
+                r.session.toggle_pause(&mut r.field);
+                r.type_("x"); // the host, not the paused session, inserts this key
+                assert_eq!(r.text(), "rrx");
+                r.session.toggle_pause(&mut r.field);
+            }
+            "empty" => {
+                r.erase(2);
+                assert_eq!(r.text(), "");
+                assert!(!r.composing());
+            }
+            _ => unreachable!(),
+        }
+        // Pause commits before changing context: that correction is still legitimate.
+        let expected = (transition == "pause").then_some(&tacit_core::Language::English);
+        assert_eq!(
+            r.session.engine().pending().get("rr"),
+            expected,
+            "{transition}"
+        );
+        r.type_(" rr ");
+        assert!(r.text().ends_with(" ㄱㄱ "), "{transition}: {}", r.text());
+        assert_eq!(r.session.engine().pending().get("rr"), expected);
+        assert!(r.session.engine().learned().is_empty());
+    }
+}
+
+#[test]
+fn digit_confirmation_and_correction_share_weak_and_strong_baselines() {
+    use tacit_core::Language;
+    for (confidence, weak) in [(0.55, true), (1.0, false)] {
+        for mode in ["ordinary", "forced", "edited"] {
+            let (mut r, queries) =
+                confirmation_rig(&format!("origin-digit-{weak}-{mode}"), confidence);
+            r.type_("rr");
+            assert_eq!(r.text(), "ㄱㄱ");
+            if mode != "ordinary" {
+                r.type_("⎋");
+            }
+            if mode == "edited" {
+                r.type_("⌫r");
+            }
+            queries.lock().unwrap().clear();
+            r.type_("1");
+            assert_eq!(
+                r.text(),
+                if mode == "ordinary" && weak {
+                    "ㄱㄱ1"
+                } else {
+                    "rr1"
+                }
+            );
+            assert!(queries
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(keys, ctx)| keys == "rr" && !ctx.partial && ctx.before_digit));
+            assert_eq!(
+                r.session.engine().pending().get("rr"),
+                (mode == "forced" && weak).then_some(&Language::English)
+            );
+            assert!(r.session.engine().learned().is_empty());
+        }
+    }
+}
+
+#[test]
+fn pre_and_post_boundary_corrections_learn_the_same_displayed_origin() {
+    use tacit_core::Language;
+    for precommit in [false, true] {
+        let (mut r, _) = confirmation_rig(&format!("origin-boundary-{precommit}"), 1.0);
+        r.field.insert_text("앞😀  뒤", None);
+        r.field.cursor = "앞😀 ".encode_utf16().count();
+        r.type_("rr");
+        assert_eq!(r.text(), "앞😀 ㄱㄱ 뒤");
+        if precommit {
+            r.key(Key::Cycle);
+        }
+        r.type_(" "); // apply the passed-through space exactly as the host does
+        if !precommit {
+            assert!(r.key(Key::Cycle));
+        }
+        assert_eq!(r.text(), "앞😀 rr  뒤");
+        assert_eq!(
+            r.field.selected_range().location,
+            "앞😀 rr ".encode_utf16().count()
+        );
+        assert!(!r.key(Key::Other)); // settle the postcommit correction window
+        assert_eq!(
+            r.session.engine().pending().get("rr"),
+            Some(&Language::English)
+        );
+        assert!(r.session.engine().learned().is_empty());
+        r.type_("rr⎋ ");
+        assert_eq!(r.text(), "앞😀 rr rr  뒤");
+        assert_eq!(
+            r.session.engine().learned().get("rr"),
+            Some(&Language::English)
+        );
+    }
 }
 
 #[test]

@@ -42,16 +42,16 @@ impl InputSession {
             after_digit: self.word_after_digit,
             before_digit: self.word_before_digit,
         };
-        let mut d = self.engine.decide(&self.word.keys, &ctx);
+        let mut d = self.engine.decide(self.word.keys(), &ctx);
         // A completed Korean ending on a known English stem must be visible before confirmation.
         if partial
             && d.language == Language::English
-            && !EnglishModel::shared().is_known_word(&self.word.keys)
-            && MixedWord::split(&self.word.keys)
+            && !EnglishModel::shared().is_known_word(self.word.keys())
+            && MixedWord::split(self.word.keys())
                 .is_some_and(|mixed| EnglishModel::shared().is_known_word(&mixed.english))
         {
             let finished = self.engine.decide(
-                &self.word.keys,
+                self.word.keys(),
                 &DecisionContext {
                     partial: false,
                     ..ctx
@@ -64,12 +64,12 @@ impl InputSession {
         let threshold = self.policy.conversion_threshold;
         let kept = d.language != Language::English && d.confidence < threshold;
         self.kept_english_by_strict =
-            kept && threshold >= AppPolicy::STRICT_THRESHOLD && char_count(&self.word.keys) <= 3;
+            kept && threshold >= AppPolicy::STRICT_THRESHOLD && char_count(self.word.keys()) <= 3;
         let decision = if kept {
             Decision {
                 language: Language::English,
                 confidence: 1.0 - d.confidence,
-                output: self.word.keys.clone(),
+                output: self.word.keys().to_owned(),
                 explanation: format!(
                     "kept English ({:.2} < {:.2}); {}",
                     d.confidence, threshold, d.explanation
@@ -80,7 +80,7 @@ impl InputSession {
             d
         };
         self.last_trace = Some(Trace {
-            keys: self.word.keys.clone(),
+            keys: self.word.keys().to_owned(),
             previous: self.previous_language,
             decision: decision.clone(),
             partial,
@@ -91,13 +91,22 @@ impl InputSession {
     /// Confirmation accepts the engine reading already shown, even when unfinished.
     /// A newly typed digit is different: it supplies identifier context (p95, k8s),
     /// so that boundary retains the ordinary confidence rule. Overrides are applied
-    /// by the caller. Explicit corrections still compare against the engine's final
-    /// decision for all the keys, including keys typed after the user forced a language.
+    /// by the caller. Unchanged explicit corrections use their first visible baseline;
+    /// edited or restored forced tokens use the final decision for the current keys.
     pub(super) fn committed_language(&mut self) -> Language {
-        if self.word.forced_by_user() {
-            return self.decide(false).language;
-        }
-        let Some(shown) = self.word.engine_preview() else {
+        let shown = if self.word.forced_by_user() {
+            let Some(origin) = self.word.correction_origin() else {
+                return self.decide(false).language;
+            };
+            Some(origin)
+        } else {
+            self.word.engine_preview()
+        };
+        self.ordinary_confirmation_language(shown)
+    }
+
+    fn ordinary_confirmation_language(&mut self, shown: Option<Language>) -> Language {
+        let Some(shown) = shown else {
             return self.decide(false).language;
         };
         if !self.word_before_digit {
@@ -118,7 +127,7 @@ impl InputSession {
         decision.confidence >= PREVIEW_FLIP_CONFIDENCE
             || (decision.language == Language::English
                 && (self.kept_english_by_strict
-                    || EnglishModel::shared().is_known_word(&self.word.keys)))
+                    || EnglishModel::shared().is_known_word(self.word.keys())))
             || self.preview(shown).is_none()
     }
 
@@ -131,8 +140,11 @@ impl InputSession {
             let text = match forced {
                 #[cfg(feature = "japanese")]
                 Language::Japanese => self.japanese_display(),
-                Language::Korean => self.word.hangul().unwrap_or_else(|| self.word.keys.clone()),
-                other => self.engine.render(&self.word.keys, other),
+                Language::Korean => self
+                    .word
+                    .hangul()
+                    .unwrap_or_else(|| self.word.keys().to_owned()),
+                other => self.engine.render(self.word.keys(), other),
             };
             client.set_marked_text(&text);
         } else {
@@ -140,10 +152,11 @@ impl InputSession {
             #[cfg(feature = "japanese")]
             self.split_off_japanese_before_korean(client);
             let continuation = self.word.take_continuation().filter(|_| {
-                self.word.keys.len() == 2 && self.word.keys.bytes().all(|c| c.is_ascii_alphabetic())
+                self.word.keys().len() == 2
+                    && self.word.keys().bytes().all(|c| c.is_ascii_alphabetic())
             });
             let partial = self.decide(true);
-            let decision = if char_count(&self.word.keys) == 1 {
+            let decision = if char_count(self.word.keys()) == 1 {
                 // A lone key is a complete letter/jamo on screen, but the next letter
                 // must continue the original partial hypothesis, not that standalone guess.
                 self.word.seed_continuation(partial.language);
@@ -156,7 +169,7 @@ impl InputSession {
             // reading. A dictionary English word may always replace a weak earlier guess.
             if let Some(shown) = continuation.or(self.word.preview_language()) {
                 if shown != language
-                    && char_count(&self.word.keys) > 1
+                    && char_count(self.word.keys()) > 1
                     && !self.is_weak_flip_allowed(&decision, shown)
                 {
                     language = shown;
@@ -168,7 +181,7 @@ impl InputSession {
                 Language::Japanese => self.japanese_display(),
                 _ => self
                     .preview(language)
-                    .unwrap_or_else(|| self.word.keys.clone()),
+                    .unwrap_or_else(|| self.word.keys().to_owned()),
             };
             client.set_marked_text(&text);
         }
@@ -179,16 +192,16 @@ impl InputSession {
     /// front of two or more ordinary syllables is followed by a known English word (or one with
     /// a particle), the Korean goes in as typed and the rest carries on as its own word.
     pub(super) fn split_off_korean_before_other(&mut self, client: &mut dyn TextClient) {
-        let chars: Vec<char> = self.word.keys.chars().collect();
+        let chars: Vec<char> = self.word.keys().chars().collect();
         if chars.len() < 7 {
             return;
         }
-        if HangulComposer::compose(&self.word.keys).is_none_or(|c| !c.is_broken()) {
+        if HangulComposer::compose(self.word.keys()).is_none_or(|c| !c.is_broken()) {
             return;
         }
         // Only what reads as Korean on its own, judged without context.
         let alone = self.engine.decide(
-            &self.word.keys,
+            self.word.keys(),
             &DecisionContext {
                 previous_language: None,
                 partial: true,
@@ -215,7 +228,7 @@ impl InputSession {
                 continue;
             }
             client.insert_text(&korean.text(), None);
-            self.word.keys = back;
+            *self.word.keys_mut() = back;
             self.word.syllable_start = None;
             self.previous_language = Some(Language::Korean);
             self.word.forget_preview();
@@ -264,11 +277,11 @@ impl InputSession {
         match language {
             #[cfg(not(feature = "japanese"))]
             Language::Japanese => None,
-            Language::English => Some(self.word.keys.clone()),
+            Language::English => Some(self.word.keys().to_owned()),
             Language::Korean => self.word.hangul(),
             Language::Mixed => {
-                let text = self.engine.render(&self.word.keys, Language::Mixed);
-                (text != self.word.keys).then_some(text)
+                let text = self.engine.render(self.word.keys(), Language::Mixed);
+                (text != self.word.keys()).then_some(text)
             }
             #[cfg(feature = "japanese")]
             Language::Japanese => self.japanese_enabled().then(|| self.japanese_reading(true)),
