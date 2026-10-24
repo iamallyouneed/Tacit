@@ -16,7 +16,7 @@ use tacit_core::store::policy::Override;
 use tacit_core::{
     make_engine, AppPolicies, ConversionCandidate, DecisionContext, DecisionEngine, EnglishModel,
     HeuristicEngine, InputSession, JapaneseConverter, JapaneseModel, Key, Language, Languages,
-    TextClient,
+    LearningEngine, TextClient,
 };
 
 /// Deterministic converter: a few readings with fixed candidates, including a
@@ -206,6 +206,235 @@ fn lexicon_path(name: &str) -> PathBuf {
     let path = std::env::temp_dir().join(format!("tacit-ja-{name}-{}.json", std::process::id()));
     let _ = std::fs::remove_file(&path);
     path
+}
+
+// Unlike JaRig::build, reopening this rig never removes the persisted store.
+fn persistent_ja_rig(engine: Arc<LearningEngine>) -> JaRig {
+    let converter = Arc::new(FakeConverter::new());
+    JaRig {
+        session: InputSession::new(engine, AppPolicies::default(), true)
+            .with_japanese(converter.clone(), false),
+        field: FakeTextField::new(),
+        converter,
+    }
+}
+
+fn correction_store(name: &str) -> PathBuf {
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let serial = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!(
+        "tacit-ja-origin-{name}-{}-{serial}.json",
+        std::process::id()
+    ));
+    assert!(!path.exists(), "test store must be fresh: {path:?}");
+    path
+}
+
+fn cycle_to(r: &mut JaRig, text: &str) {
+    for _ in 0..3 {
+        r.key(Key::Escape);
+        if r.text() == text {
+            return;
+        }
+    }
+    panic!("language cycle did not reach {text:?}: {:?}", r.text());
+}
+
+#[test]
+fn japanese_explicit_english_confirmation_persists_displayed_origin() {
+    for (keys, kana) in [("siasia", "しあしあ"), ("ozzy", "おっzy")] {
+        let path = correction_store(keys);
+        let engine = make_engine(Some(path.clone()), &Languages::legacy(true));
+        for round in 1..=2 {
+            let mut r = persistent_ja_rig(engine.clone());
+            r.type_(keys);
+            assert_eq!(r.text(), kana);
+            r.key(Key::Escape);
+            assert_eq!(r.text(), keys);
+            r.key(Key::Enter);
+            assert_eq!(r.text(), keys);
+            assert!(!r.composing());
+            if round == 1 {
+                assert_eq!(engine.pending().get(keys), Some(&Language::English));
+                assert!(engine.learned().is_empty());
+            } else {
+                assert_eq!(engine.learned().get(keys), Some(&Language::English));
+                assert!(engine.pending().is_empty());
+            }
+        }
+        drop(engine);
+        let reopened = make_engine(Some(path), &Languages::legacy(true));
+        assert_eq!(reopened.learned().get(keys), Some(&Language::English));
+        let mut r = persistent_ja_rig(reopened);
+        r.type_(keys);
+        assert_eq!(r.text(), keys);
+    }
+}
+
+#[test]
+fn japanese_cycle_back_to_displayed_origin_does_not_learn() {
+    for (keys, kana) in [("siasia", "しあしあ"), ("ozzy", "おっzy")] {
+        let engine = make_engine(Some(correction_store("cycle")), &Languages::legacy(true));
+        let mut r = persistent_ja_rig(engine.clone());
+        r.type_(keys);
+        assert_eq!(r.text(), kana);
+        // Multiple unchanged full cycles remain one choice relative to the first display.
+        for _ in 0..2 {
+            cycle_to(&mut r, kana);
+        }
+        r.key(Key::Enter);
+        assert_eq!(r.text(), kana);
+        assert!(engine.pending().is_empty());
+        assert!(engine.learned().is_empty());
+    }
+}
+
+#[test]
+fn japanese_post_boundary_english_correction_is_a_positive_control() {
+    for (keys, kana) in [("siasia", "しあしあ"), ("ozzy", "おっzy")] {
+        let engine = make_engine(Some(correction_store("boundary")), &Languages::legacy(true));
+        for round in 1..=2 {
+            let mut r = persistent_ja_rig(engine.clone());
+            r.type_(keys);
+            assert_eq!(r.text(), kana);
+            r.type_("🙂");
+            assert!(
+                !r.composing(),
+                "the delimiter must commit the Japanese word"
+            );
+            assert_eq!(r.text(), format!("{kana}🙂"));
+            assert_eq!(r.field.cursor, kana.encode_utf16().count() + 2);
+            r.key(Key::Escape);
+            assert_eq!(r.text(), format!("{keys}🙂"));
+            assert_eq!(r.field.cursor, keys.encode_utf16().count() + 2);
+            r.key(Key::Other);
+            assert_eq!(r.text(), format!("{keys}🙂"));
+            assert_eq!(r.field.cursor, keys.encode_utf16().count() + 2);
+            if round == 1 {
+                assert_eq!(engine.pending().get(keys), Some(&Language::English));
+                assert!(engine.learned().is_empty());
+            } else {
+                assert_eq!(engine.learned().get(keys), Some(&Language::English));
+            }
+        }
+    }
+}
+
+#[test]
+fn japanese_space_uses_origin_before_conversion_releases_the_word() {
+    let engine = make_engine(Some(correction_store("space")), &Languages::legacy(true));
+    let mut r = persistent_ja_rig(engine.clone());
+    r.type_("siasia");
+    assert_eq!(r.text(), "しあしあ");
+    cycle_to(&mut r, "しあしあ");
+    r.type_(" ");
+    assert!(r.session.conversion().is_some());
+    assert_eq!(r.text(), "しあしあ");
+    // Space records before moving keys into Conversion; the original display is Japanese.
+    assert!(engine.pending().is_empty());
+    assert!(engine.learned().is_empty());
+    r.key(Key::Enter);
+    assert_eq!(r.converter.learned(), ["しあしあ"]);
+    assert!(engine.pending().is_empty());
+    assert!(engine.learned().is_empty());
+}
+
+#[test]
+fn japanese_conversion_cancel_restores_originless_fallback_and_deduplicates() {
+    let engine = make_engine(Some(correction_store("restore")), &Languages::legacy(true));
+    let mut r = persistent_ja_rig(engine.clone());
+    r.type_("siasia");
+    cycle_to(&mut r, "しあしあ");
+    r.type_(" ");
+    assert!(engine.pending().is_empty());
+    let trace = r.session.last_trace().unwrap();
+    assert_eq!(trace.keys, "siasia");
+    assert!(
+        trace.partial,
+        "valid origin must avoid hypothetical final scoring"
+    );
+    r.key(Key::Escape);
+    assert!(r.session.conversion().is_none());
+    assert_eq!(r.text(), "しあしあ");
+    // Restoring keys invalidates origin and requests current-token final scoring.
+    // Delivery still deduplicates the Japanese choice recorded by the first Space,
+    // even though that first choice equalled its baseline and taught nothing.
+    r.type_(" ");
+    let trace = r.session.last_trace().unwrap();
+    assert_eq!(trace.keys, "siasia");
+    assert!(
+        !trace.partial,
+        "restored keys must use current-token final fallback"
+    );
+    assert!(engine.pending().is_empty());
+    for _ in 0..2 {
+        r.type_("⎋ ");
+        let trace = r.session.last_trace().unwrap();
+        assert_eq!(trace.keys, "siasia");
+        assert!(!trace.partial);
+        assert!(engine.pending().is_empty());
+        assert!(engine.learned().is_empty());
+    }
+    r.key(Key::Enter);
+    assert_eq!(r.converter.learned(), ["しあしあ"]);
+    assert!(engine.pending().is_empty());
+    assert!(engine.learned().is_empty());
+}
+
+#[test]
+fn japanese_kana_delete_retype_invalidates_origin_without_recapturing() {
+    let engine = make_engine(Some(correction_store("respell")), &Languages::legacy(true));
+    let mut r = persistent_ja_rig(engine.clone());
+    r.type_("siasia");
+    assert_eq!(r.text(), "しあしあ");
+    cycle_to(&mut r, "しあしあ");
+    r.key(Key::Delete);
+    assert_eq!(r.text(), "しあし");
+    r.type_("a");
+    assert_eq!(r.text(), "しあしあ");
+    cycle_to(&mut r, "siasia");
+    assert_eq!(
+        engine
+            .decide("siasia", &DecisionContext::default())
+            .language,
+        Language::English
+    );
+    r.key(Key::Enter);
+    assert_eq!(r.text(), "siasia");
+    // Identical final bytes do not revive the first Japanese origin.
+    assert!(engine.pending().is_empty());
+    assert!(engine.learned().is_empty());
+}
+
+#[test]
+fn japanese_conversion_n_marker_normalization_uses_current_final_fallback() {
+    let engine = make_engine(Some(correction_store("n-marker")), &Languages::legacy(true));
+    let mut r = persistent_ja_rig(engine.clone());
+    r.type_("henkan");
+    assert_eq!(r.text(), "へんかn");
+    cycle_to(&mut r, "へんかn");
+    r.type_(" ");
+    assert_eq!(r.text(), "変換");
+    r.key(Key::Escape);
+    assert_eq!(r.text(), "へんかん");
+    assert!(r.session.conversion().is_none());
+    assert!(engine.pending().is_empty());
+    cycle_to(&mut r, "henkan");
+    // Leaving restored Japanese removes the synthetic apostrophe, never learning
+    // henkan' or reviving provenance captured before conversion.
+    let baseline = engine
+        .decide("henkan", &DecisionContext::default())
+        .language;
+    r.key(Key::Enter);
+    assert_eq!(r.text(), "henkan");
+    assert!(!engine.pending().contains_key("henkan'"));
+    assert!(engine.learned().is_empty());
+    if baseline == Language::English {
+        assert!(engine.pending().is_empty());
+    } else {
+        assert_eq!(engine.pending().len(), 1);
+        assert_eq!(engine.pending().get("henkan"), Some(&Language::English));
+    }
 }
 
 fn trilingual() -> HeuristicEngine {

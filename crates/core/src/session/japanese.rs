@@ -54,7 +54,7 @@ impl InputSession {
     pub(super) fn start_symbol(&mut self, ch: char, client: &mut dyn TextClient) {
         self.last_recorded = None;
         self.ja.live_suppressed = false;
-        self.word.keys = ch.to_string();
+        *self.word.keys_mut() = ch.to_string();
         self.word.force(Language::Japanese, false);
         self.update_preview(client);
     }
@@ -105,7 +105,7 @@ impl InputSession {
                 || (self.word.forced().is_none()
                     && self.word.preview_language() == Some(Language::Japanese)
                     && matches!(
-                        RomajiComposer::compose(&self.word.keys, true)
+                        RomajiComposer::compose(self.word.keys(), true)
                             .pending
                             .as_str(),
                         "" | "n"
@@ -123,7 +123,7 @@ impl InputSession {
             return ch == '-'
                 || ch == '\''
                 || matches!(
-                    RomajiComposer::compose(&self.word.keys, true)
+                    RomajiComposer::compose(self.word.keys(), true)
                         .pending
                         .as_str(),
                     "" | "n"
@@ -138,15 +138,15 @@ impl InputSession {
         if self.word.forced().is_none()
             && (ch == '-' || ch == '\'')
             && self.word.preview_language() == Some(Language::English)
-            && (ch == '-' || !EnglishModel::shared().is_known_word(&self.word.keys))
-            && RomajiComposer::compose(&self.word.keys, true).stray_letters == 0
+            && (ch == '-' || !EnglishModel::shared().is_known_word(self.word.keys()))
+            && RomajiComposer::compose(self.word.keys(), true).stray_letters == 0
         {
             let context = DecisionContext {
                 previous_language: self.previous_language,
                 partial: true,
                 ..Default::default()
             };
-            let mut keys = self.word.keys.clone();
+            let mut keys = self.word.keys().to_owned();
             keys.push(ch);
             return self.engine.decide(&keys, &context).language == Language::Japanese;
         }
@@ -160,18 +160,18 @@ impl InputSession {
                 .ja
                 .segmenter
                 .as_ref()
-                .and_then(|s| s.segment(&self.word.keys))
+                .and_then(|s| s.segment(self.word.keys()))
             {
                 return JapaneseSegmenter::text(&segments);
             }
-            return RomajiComposer::compose(&self.word.keys, false).text;
+            return RomajiComposer::compose(self.word.keys(), false).text;
         }
         self.japanese_partial_reading().0
     }
 
     /// The visible reading and only the pending letters belonging to its Japanese tail.
     fn japanese_partial_reading(&self) -> (String, String) {
-        let composed = RomajiComposer::compose(&self.word.keys, true);
+        let composed = RomajiComposer::compose(self.word.keys(), true);
         // While typing, a consonant at the end is just waiting for its vowel (watashihag → わたしはg),
         // not a stray letter to split an English word ("hag") out of.
         if composed.stray_letters > 0 {
@@ -179,7 +179,7 @@ impl InputSession {
                 .ja
                 .segmenter
                 .as_ref()
-                .and_then(|s| s.segment(&self.word.keys))
+                .and_then(|s| s.segment(self.word.keys()))
             {
                 // While typing, the last segment may still be growing; keep its pending letters visible.
                 if let Some((last, head)) = segments.split_last() {
@@ -291,7 +291,7 @@ impl InputSession {
         let user_forced =
             self.word.forced() == Some(Language::Japanese) && self.word.forced_by_user();
         if user_forced {
-            let keys = self.word.keys.clone();
+            let keys = self.word.keys().to_owned();
             let engine_choice = self.committed_language();
             self.record(&keys, Language::Japanese, engine_choice);
         }
@@ -317,7 +317,7 @@ impl InputSession {
         self.ja.live_suppressed = false;
         self.ja.conversion = Some(Conversion {
             kana: kana.clone(),
-            keys: std::mem::take(&mut self.word.keys),
+            keys: std::mem::take(self.word.keys_mut()),
             candidates,
             selected,
             user_forced,
@@ -345,7 +345,7 @@ impl InputSession {
         client: &mut dyn TextClient,
     ) {
         let kana = kana.unwrap_or_else(|| self.japanese_reading(false));
-        let keys = keys.unwrap_or_else(|| self.word.keys.clone());
+        let keys = keys.unwrap_or_else(|| self.word.keys().to_owned());
         let forms = vec![
             ConversionCandidate::new(RomajiComposer::katakana(&kana), char_count(&kana)),
             ConversionCandidate::new(kana.clone(), char_count(&kana)),
@@ -363,7 +363,7 @@ impl InputSession {
             user_forced: false,
             previous: self.word.previous_clause.take(),
         });
-        self.word.keys.clear();
+        self.word.keys_mut().clear();
         self.word.release();
         self.word.syllable_start = None;
         self.previous_language = Some(Language::Japanese);
@@ -516,7 +516,7 @@ impl InputSession {
                     keys.push('\'');
                     self.ja.added_n_marker = true;
                 }
-                self.word.keys = keys;
+                *self.word.keys_mut() = keys;
                 self.word.previous_clause = conversion.previous;
                 self.ja.live_cache = None;
                 self.word.force(Language::Japanese, conversion.user_forced);
@@ -686,19 +686,19 @@ impl InputSession {
     /// typed as composes to it. A letter still waiting for its vowel goes alone (かんこk → かんこ),
     /// and so does anything in a phrase with English in it.
     pub(super) fn delete_kana(&mut self) {
-        let composed = RomajiComposer::compose(&self.word.keys, true);
+        let composed = RomajiComposer::compose(self.word.keys(), true);
         if composed.pending.is_empty() && composed.stray_letters == 0 && !composed.text.is_empty() {
             let shorter: String = composed
                 .text
                 .chars()
                 .take(char_count(&composed.text) - 1)
                 .collect();
-            if let Some(keys) = Self::keys_spelling(&shorter, &self.word.keys) {
-                self.word.keys = keys;
+            if let Some(keys) = Self::keys_spelling(&shorter, self.word.keys()) {
+                *self.word.keys_mut() = keys;
                 return;
             }
         }
-        self.word.keys.pop();
+        self.word.keys_mut().pop();
     }
 
     /// The longest start of `keys` that composes to a start of `kana`, followed by a spelling of
@@ -727,8 +727,8 @@ impl InputSession {
     }
 
     pub(super) fn drop_n_marker(&mut self) {
-        if self.ja.added_n_marker && self.word.keys.ends_with('\'') {
-            self.word.keys.pop();
+        if self.ja.added_n_marker && self.word.keys().ends_with('\'') {
+            self.word.keys_mut().pop();
         }
         self.ja.added_n_marker = false;
     }
@@ -738,17 +738,17 @@ impl InputSession {
     /// part is a particle or two ordinary syllables, the Japanese goes in (kanji with live
     /// conversion) and the rest carries on as Korean, so 를요, 에서 or 도시락은 can follow.
     pub(super) fn split_off_japanese_before_korean(&mut self, client: &mut dyn TextClient) {
-        if !self.japanese_enabled() || char_count(&self.word.keys) < 5 {
+        if !self.japanese_enabled() || char_count(self.word.keys()) < 5 {
             return;
         }
-        if !HangulComposer::compose(&self.word.keys).is_none_or(|c| c.is_broken()) {
+        if !HangulComposer::compose(self.word.keys()).is_none_or(|c| c.is_broken()) {
             return;
         }
         // Keys that still spell romaji are more Japanese (kyouhago is きょうはご, not きょうは해).
-        if RomajiComposer::compose(&self.word.keys, true).stray_letters == 0 {
+        if RomajiComposer::compose(self.word.keys(), true).stray_letters == 0 {
             return;
         }
-        let chars: Vec<char> = self.word.keys.chars().collect();
+        let chars: Vec<char> = self.word.keys().chars().collect();
         // The longest Japanese front first: きょうは|도시, not きょう|하ㄷ….
         for cut in (3..chars.len()).rev() {
             let front: String = chars[..cut].iter().collect();
@@ -786,10 +786,10 @@ impl InputSession {
             if decision.language != Language::Japanese || decision.confidence < 0.9 {
                 continue;
             }
-            self.word.keys = front;
+            *self.word.keys_mut() = front;
             let committed = self.committed_japanese();
             client.insert_text(&committed, None);
-            self.word.keys = back;
+            *self.word.keys_mut() = back;
             self.word.syllable_start = None;
             self.previous_language = Some(Language::Japanese);
             self.word.force(Language::Korean, false);
