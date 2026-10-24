@@ -265,7 +265,7 @@ impl InputSession {
     }
 
     pub fn keys(&self) -> &str {
-        &self.word.keys
+        self.word.keys()
     }
     pub fn app(&self) -> Option<&str> {
         self.app.as_deref()
@@ -308,6 +308,7 @@ impl InputSession {
     pub fn activate(&mut self, exe: Option<&str>) {
         self.width.after_digit = false;
         self.word_after_digit = false;
+        self.word.invalidate_correction_origin();
         #[cfg(feature = "japanese")]
         if let Some(converter) = &self.ja.converter {
             converter.reload();
@@ -346,6 +347,7 @@ impl InputSession {
         if !self.paused {
             self.commit(client);
         }
+        self.word.invalidate_correction_origin();
         self.paused = !self.paused;
         self.previous_language = None;
     }
@@ -365,7 +367,7 @@ impl InputSession {
         if !self.policy.enabled
             || self.paused
             || !self.japanese_enabled()
-            || !self.word.keys.is_empty()
+            || !self.word.keys().is_empty()
             || self.ja.conversion.is_some()
         {
             return false;
@@ -402,7 +404,7 @@ impl InputSession {
         #[cfg(feature = "japanese")]
         if key == Key::ShiftSpace {
             // With nothing being typed, the other width: full-width unless Space already types that.
-            let eligible = self.word.keys.is_empty()
+            let eligible = self.word.keys().is_empty()
                 && self.ja.conversion.is_none()
                 && self.japanese_enabled()
                 && self.policy.full_width;
@@ -425,7 +427,7 @@ impl InputSession {
             return self.handle(Key::Printable(' '), client);
         }
         if !(matches!(key, Key::Letter(_))
-            || (matches!(key, Key::Printable(_)) && self.word.keys.is_empty()))
+            || (matches!(key, Key::Printable(_)) && self.word.keys().is_empty()))
         {
             self.width.after_digit = false;
         }
@@ -467,10 +469,12 @@ impl InputSession {
         let after_digit = std::mem::take(&mut self.width.after_digit);
         // A symbol on its own is confirmed by the next word, which is judged by itself.
         #[cfg(feature = "japanese")]
-        if !self.word.keys.is_empty() && self.word.keys.chars().all(RomajiComposer::is_symbol_key) {
+        if !self.word.keys().is_empty()
+            && self.word.keys().chars().all(RomajiComposer::is_symbol_key)
+        {
             self.commit(client);
         }
-        if self.word.keys.is_empty() {
+        if self.word.keys().is_empty() {
             self.last_recorded = None; // a new word
             if std::mem::take(&mut self.edited_back) {
                 self.previous_language = self
@@ -490,7 +494,7 @@ impl InputSession {
         {
             self.ja.added_n_marker = false;
         }
-        self.word.keys.push(ch);
+        self.word.keys_mut().push(ch);
         // Mending the Hangul just typed (한국 → 한ㄱ, then `r`) stays Korean; the engine judging
         // the whole key string would flip it to Latin. Once the edited part no longer reads as
         // Hangul, the engine decides again (한 + hello).
@@ -536,7 +540,7 @@ impl InputSession {
             Some(Language::Japanese) => self.delete_kana(),
             Some(Language::Korean) => self.word.delete_jamo_or_syllable(),
             _ => {
-                self.word.keys.pop();
+                self.word.keys_mut().pop();
             }
         }
         #[cfg(feature = "japanese")]
@@ -576,14 +580,13 @@ impl InputSession {
             Some(l) => l,
             None => self.decide(true).language,
         };
-        self.read_as(self.next_language(shown, &self.word.keys), client);
+        self.read_as(self.next_language(shown, self.word.keys()), client);
         true
     }
 
     /// The word being typed is read as `language`, by the user's choice.
     fn read_as(&mut self, language: Language, client: &mut dyn TextClient) {
-        self.word.force(language, true);
-        self.word.unpin();
+        self.word.choose_reading(language);
         #[cfg(feature = "japanese")]
         if language != Language::Japanese {
             self.drop_n_marker();
@@ -594,7 +597,7 @@ impl InputSession {
     /// Space, digit or punctuation: the word goes in, the app types the key itself.
     /// Japanese: symbols and digits inside a phrase join it, Space opens the conversion.
     fn on_printable(&mut self, ch: char, client: &mut dyn TextClient) -> bool {
-        if self.word.keys.is_empty() {
+        if self.word.keys().is_empty() {
             #[cfg(feature = "japanese")]
             let handled = self.on_printable_empty(ch, client);
             #[cfg(not(feature = "japanese"))]
@@ -604,7 +607,7 @@ impl InputSession {
         }
         #[cfg(feature = "japanese")]
         if self.japanese_enabled() && self.belongs_to_japanese_phrase(ch) {
-            self.word.keys.push(ch);
+            self.word.keys_mut().push(ch);
             // Digits don't read as anything: the phrase stays Japanese, as it was shown.
             if ch.is_numeric() && self.word.forced().is_none() {
                 self.word.force(Language::Japanese, false);
@@ -722,7 +725,7 @@ impl InputSession {
     /// phrase; otherwise the keys stay the app's shortcuts.
     #[cfg(feature = "japanese")]
     fn on_kana_form(&mut self, katakana: bool, client: &mut dyn TextClient) -> bool {
-        if self.word.keys.is_empty()
+        if self.word.keys().is_empty()
             || !self.japanese_enabled()
             || !(self.word.forced() == Some(Language::Japanese)
                 || self.word.preview_language() == Some(Language::Japanese))
@@ -754,7 +757,7 @@ impl InputSession {
             if let Some(converter) = &self.ja.converter {
                 converter.learn(conversion.current(), &conversion.kana);
             }
-            self.word.keys.clear();
+            self.word.keys_mut().clear();
             self.word_after_digit = false;
             self.previous_language = Some(Language::Japanese);
             return;
@@ -813,7 +816,8 @@ impl InputSession {
             engine_choice
         };
         if self.word.forced().is_some() && self.word.forced_by_user() {
-            self.record(&self.word.keys.clone(), language, decided);
+            let keys = self.word.keys().to_owned();
+            self.record(&keys, language, decided);
         }
         let text = match language {
             #[cfg(feature = "japanese")]
@@ -821,8 +825,8 @@ impl InputSession {
             Language::Korean => self
                 .word
                 .hangul()
-                .unwrap_or_else(|| self.engine.render(&self.word.keys, language)),
-            other => self.engine.render(&self.word.keys, other),
+                .unwrap_or_else(|| self.engine.render(self.word.keys(), language)),
+            other => self.engine.render(self.word.keys(), other),
         };
         #[cfg(feature = "japanese")]
         {
@@ -836,7 +840,7 @@ impl InputSession {
             h.record(&text);
         }
         let word = Word {
-            keys: std::mem::take(&mut self.word.keys),
+            keys: std::mem::take(self.word.keys_mut()),
             text,
             language,
             decided,

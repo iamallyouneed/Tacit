@@ -5,7 +5,9 @@ use crate::lang::hangul::{HangulComposer, Unit};
 
 #[derive(Default)]
 pub(super) struct WordState {
-    pub keys: String,
+    keys: String,
+    /// Reading actually shown before the first explicit choice, valid until keys/context change.
+    correction_origin: Option<Language>,
     /// Clause context retained while a remaining Japanese reading is edited.
     #[cfg(feature = "japanese")]
     pub previous_clause: Option<crate::decide::convert::ConversionCandidate>,
@@ -34,6 +36,28 @@ impl WordState {
         self.keys.is_empty()
     }
 
+    pub fn keys(&self) -> &str {
+        &self.keys
+    }
+    pub fn keys_mut(&mut self) -> &mut String {
+        self.invalidate_correction_origin();
+        &mut self.keys
+    }
+    pub fn correction_origin(&self) -> Option<Language> {
+        self.correction_origin
+    }
+    pub fn invalidate_correction_origin(&mut self) {
+        self.correction_origin = None;
+    }
+    /// An explicit choice keeps the first visible baseline across unchanged cycles.
+    pub fn choose_reading(&mut self, language: Language) {
+        if !self.forced_by_user() {
+            self.correction_origin = self.shown_language();
+        }
+        self.force(language, true);
+        self.unpin();
+    }
+
     pub fn forced(&self) -> Option<Language> {
         self.forced
     }
@@ -59,6 +83,9 @@ impl WordState {
 
     /// The reading is fixed to `language` (by the user's Esc, or by the session).
     pub fn force(&mut self, language: Language, by_user: bool) {
+        if !by_user {
+            self.invalidate_correction_origin();
+        }
         self.continuation_language = None;
         self.forced = Some(language);
         self.forced_by_user = by_user;
@@ -82,6 +109,7 @@ impl WordState {
     }
     /// Nothing is on screen for this word any more.
     pub fn forget_preview(&mut self) {
+        self.invalidate_correction_origin();
         self.continuation_language = None;
         self.preview_language = None;
         self.engine_preview = None;
@@ -89,6 +117,7 @@ impl WordState {
     /// The word became a Japanese phrase being converted: no steering is left over.
     #[cfg(feature = "japanese")]
     pub fn release(&mut self) {
+        self.invalidate_correction_origin();
         self.continuation_language = None;
         self.forced = None;
         self.forced_by_user = false;
@@ -114,6 +143,7 @@ impl WordState {
     /// Korean as the system's 2-set input deletes it: jamo by jamo in the syllable being typed
     /// (한국 → 한구 → 한ㄱ → 한), then whole syllables, which it had already committed.
     pub(super) fn delete_jamo_or_syllable(&mut self) {
+        self.invalidate_correction_origin();
         let chars: Vec<char> = self.keys.chars().collect();
         let Some(composed) = HangulComposer::compose(&self.keys) else {
             self.keys.pop();
@@ -170,6 +200,148 @@ impl WordState {
                 )
             }
             _ => HangulComposer::compose(&self.keys).map(|c| c.text()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn corrected(keys: &str) -> WordState {
+        let mut word = WordState::default();
+        word.keys_mut().push_str(keys);
+        word.show_engine(Language::Korean);
+        word.choose_reading(Language::English);
+        word
+    }
+
+    #[test]
+    fn unchanged_cycles_keep_first_visible_origin() {
+        let mut word = corrected("rr");
+        word.show(Language::English);
+        word.choose_reading(Language::Korean);
+        word.choose_reading(Language::English);
+        assert_eq!(word.correction_origin(), Some(Language::Korean));
+        assert!(word.forced_by_user());
+    }
+
+    #[test]
+    fn first_choice_captures_pin_not_engine_preview() {
+        let mut word = WordState::default();
+        word.show_engine(Language::English);
+        word.pin(Some(Language::Korean));
+        word.choose_reading(Language::English);
+        assert_eq!(word.correction_origin(), Some(Language::Korean));
+        assert_eq!(word.engine_preview(), Some(Language::English));
+        assert_eq!(word.pinned(), None);
+    }
+
+    #[test]
+    fn key_mutations_invalidate_without_recapture() {
+        let mutations: [fn(&mut String); 5] = [
+            |keys| keys.push('r'),
+            |keys| {
+                keys.pop();
+            },
+            |keys| *keys = "rr".to_owned(),
+            String::clear,
+            |keys| {
+                let _ = std::mem::take(keys);
+            },
+        ];
+        for mutate in mutations {
+            let mut word = corrected("rr");
+            mutate(word.keys_mut());
+            assert_eq!(word.correction_origin(), None);
+            word.show(Language::English);
+            word.choose_reading(Language::Korean);
+            assert_eq!(word.correction_origin(), None);
+            assert!(word.forced_by_user());
+        }
+    }
+
+    #[test]
+    fn delete_and_retype_identical_keys_does_not_restore_origin() {
+        let mut word = corrected("rr");
+        word.keys_mut().pop();
+        word.keys_mut().push('r');
+        assert_eq!(word.keys(), "rr");
+        word.choose_reading(Language::Korean);
+        assert_eq!(word.correction_origin(), None);
+    }
+
+    #[test]
+    fn unavailable_or_invalidated_origin_is_not_recaptured() {
+        let mut word = WordState::default();
+        word.keys_mut().push_str("rr");
+        word.choose_reading(Language::English);
+        word.show(Language::English);
+        word.choose_reading(Language::Korean);
+        assert_eq!(word.correction_origin(), None);
+
+        let mut word = corrected("rr");
+        word.invalidate_correction_origin();
+        word.choose_reading(Language::Korean);
+        assert_eq!(word.correction_origin(), None);
+    }
+
+    #[test]
+    fn internal_force_and_preview_reset_clear_origin() {
+        let mut word = corrected("rr");
+        word.force(Language::Korean, false);
+        assert_eq!(word.correction_origin(), None);
+        assert!(!word.forced_by_user());
+        word.force(Language::English, true);
+        assert_eq!(word.correction_origin(), None);
+        word.choose_reading(Language::Korean);
+        assert_eq!(word.correction_origin(), None);
+
+        let mut word = corrected("rr");
+        word.forget_preview();
+        assert_eq!(word.correction_origin(), None);
+        word.choose_reading(Language::Korean);
+        assert_eq!(word.correction_origin(), None);
+
+        let mut word = corrected("rr");
+        word.reset();
+        assert!(word.is_empty());
+        assert_eq!(word.correction_origin(), None);
+        assert!(!word.forced_by_user());
+        word.show_engine(Language::English);
+        word.choose_reading(Language::Korean);
+        assert_eq!(word.correction_origin(), Some(Language::English));
+    }
+
+    #[cfg(feature = "japanese")]
+    #[test]
+    fn conversion_release_and_restore_leave_origin_unavailable() {
+        let mut word = corrected("kana");
+        word.release();
+        assert_eq!(word.correction_origin(), None);
+        assert!(!word.forced_by_user());
+        *word.keys_mut() = "kana".to_owned();
+        word.force(Language::Japanese, true);
+        word.choose_reading(Language::English);
+        assert!(word.forced_by_user());
+        assert_eq!(word.correction_origin(), None);
+    }
+
+    #[test]
+    fn every_hangul_deletion_branch_invalidates_origin() {
+        // Non-Hangul pop, current-syllable jamo pop, and committed whole-syllable removal.
+        for (keys, start, remaining) in [
+            ("!", None, ""),
+            ("gksrnr", None, "gksrn"),
+            ("gksrnr", Some(6), "gks"),
+        ] {
+            let mut word = corrected(keys);
+            word.syllable_start = start;
+            word.delete_jamo_or_syllable();
+            assert_eq!(word.keys(), remaining);
+            assert_eq!(word.correction_origin(), None);
+            word.choose_reading(Language::Korean);
+            assert_eq!(word.correction_origin(), None);
         }
     }
 }
