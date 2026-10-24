@@ -2,15 +2,15 @@
 //! EndToEndTests, SessionPolicyTests and CorrectionTests, driven through a fake text field.
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use tacit_core::session::testing::FakeTextField;
 use tacit_core::session::{InputMode, Range, NOT_FOUND};
 use tacit_core::store::policy::Override;
 use tacit_core::History;
 use tacit_core::{
-    AppPolicies, AppPolicy, EnglishModel, HeuristicEngine, InputSession, Key, LearningEngine,
-    SplittingEngine, TextClient,
+    AppPolicies, AppPolicy, Decision, DecisionContext, DecisionEngine, EnglishModel,
+    HeuristicEngine, InputSession, Key, Language, LearningEngine, SplittingEngine, TextClient,
 };
 
 fn engine(name: &str) -> Arc<LearningEngine> {
@@ -106,6 +106,271 @@ impl Rig {
 
     fn composing(&self) -> bool {
         self.field.marked_range().location != NOT_FOUND
+    }
+}
+
+type DecisionCalls = Arc<Mutex<Vec<(String, DecisionContext)>>>;
+
+/// Record the context delivered to the engine, independently of linguistic scoring.
+struct RecordingDecisionEngine {
+    calls: DecisionCalls,
+}
+
+impl DecisionEngine for RecordingDecisionEngine {
+    fn decide(&self, keys: &str, context: &DecisionContext) -> Decision {
+        self.calls
+            .lock()
+            .unwrap()
+            .push((keys.to_string(), *context));
+        Decision {
+            language: Language::English,
+            confidence: 1.0,
+            output: keys.to_string(),
+            explanation: String::new(),
+            runner_up: None,
+        }
+    }
+}
+
+fn recording_rig() -> (Rig, DecisionCalls) {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let engine = Arc::new(LearningEngine::new(
+        Box::new(RecordingDecisionEngine {
+            calls: calls.clone(),
+        }),
+        None,
+    ));
+    (
+        Rig {
+            session: InputSession::new(engine, AppPolicies::default(), true),
+            field: FakeTextField::new(),
+        },
+        calls,
+    )
+}
+
+/// Require an actual decision for every growing prefix, not merely an empty iterator.
+fn assert_digit_context(calls: &DecisionCalls, token: &str, after_digit: bool) {
+    let calls = calls.lock().unwrap();
+    for end in 1..=token.len() {
+        let prefix = &token[..end];
+        let contexts: Vec<_> = calls
+            .iter()
+            .filter(|(keys, _)| keys == prefix)
+            .map(|(_, context)| context)
+            .collect();
+        assert!(!contexts.is_empty(), "no decision for {prefix}: {calls:?}");
+        for context in contexts {
+            assert_eq!(context.after_digit, after_digit, "{prefix}: {context:?}");
+            assert!(!context.before_digit, "{prefix}: {context:?}");
+        }
+    }
+}
+
+#[test]
+fn immediate_digit_context_reaches_every_letter_of_the_next_token() {
+    // A decimal is not special: its final digit supplies the immediate context.
+    for prefix in ["1", "10", "111", "k8", "k88", "1.5", "1-5", "1/5"] {
+        let (mut r, calls) = recording_rig();
+        r.type_(prefix);
+        calls.lock().unwrap().clear();
+        r.type_("sus");
+        assert_digit_context(&calls, "sus", true);
+    }
+}
+
+#[test]
+fn whitespace_and_symbols_end_immediate_digit_context() {
+    for prefix in ["1 ", "10.", "1,", "1-", "1/", "1.5.", "k8 ", "k8."] {
+        let (mut r, calls) = recording_rig();
+        r.type_(prefix);
+        calls.lock().unwrap().clear();
+        r.type_("sus");
+        assert_digit_context(&calls, "sus", false);
+    }
+}
+
+#[test]
+fn session_boundaries_discard_pending_digit_context() {
+    for boundary in ["delete", "enter", "other", "reset", "activate", "pause"] {
+        for prefix in ["10", "k8"] {
+            let (mut r, calls) = recording_rig();
+            r.type_(prefix);
+            match boundary {
+                "delete" => r.erase(1),
+                "enter" => {
+                    r.key(Key::Enter);
+                }
+                "other" => {
+                    r.key(Key::Other);
+                }
+                "reset" => r.session.commit_for_new_context(&mut r.field),
+                "activate" => r.session.activate(Some("test.digit-context")),
+                "pause" => {
+                    r.session.toggle_pause(&mut r.field);
+                    r.session.toggle_pause(&mut r.field);
+                }
+                _ => unreachable!(),
+            }
+            calls.lock().unwrap().clear();
+            r.type_("sus");
+            assert_digit_context(&calls, "sus", false);
+        }
+    }
+}
+
+#[test]
+fn digit_context_does_not_leak_past_the_following_token() {
+    for boundary in [" ", ".", "⏎"] {
+        let (mut r, calls) = recording_rig();
+        r.type_("10sus");
+        r.type_(boundary);
+        calls.lock().unwrap().clear();
+        r.type_("hello");
+        assert_digit_context(&calls, "hello", false);
+    }
+}
+
+#[test]
+fn deleting_the_owned_token_preserves_digit_adjacency_until_the_digit_is_deleted() {
+    for delete_digit in [false, true] {
+        let (mut r, calls) = recording_rig();
+        r.type_("1s");
+        assert!(r.key(Key::Delete));
+        assert!(r.session.keys().is_empty());
+        assert_eq!(r.text(), "1");
+        if delete_digit {
+            r.erase(1);
+            assert_eq!(r.text(), "");
+        }
+        calls.lock().unwrap().clear();
+        r.type_("s");
+        assert_digit_context(&calls, "s", !delete_digit);
+    }
+}
+
+#[test]
+fn activation_invalidates_the_digit_origin_of_an_owned_token() {
+    let (mut r, calls) = recording_rig();
+    r.type_("1s");
+    r.session.activate(Some("test.new-digit-context"));
+    assert!(r.key(Key::Delete));
+    assert!(r.session.keys().is_empty());
+    calls.lock().unwrap().clear();
+    r.type_("s");
+    assert_digit_context(&calls, "s", false);
+}
+
+/// Synthetic routing for a session split-path test, not a model accuracy test.
+struct RecordingSplitEngine {
+    base: SplittingEngine,
+    calls: DecisionCalls,
+}
+
+impl DecisionEngine for RecordingSplitEngine {
+    fn decide(&self, keys: &str, context: &DecisionContext) -> Decision {
+        self.calls
+            .lock()
+            .unwrap()
+            .push((keys.to_string(), *context));
+        if keys.starts_with("dhsmfdms") {
+            return Decision {
+                language: Language::Korean,
+                confidence: 1.0,
+                output: self.base.render(keys, Language::Korean),
+                explanation: "synthetic Korean prefix routing".to_string(),
+                runner_up: None,
+            };
+        }
+        self.base.decide(keys, context)
+    }
+
+    fn render(&self, keys: &str, language: Language) -> String {
+        self.base.render(keys, language)
+    }
+}
+
+#[test]
+fn an_internal_korean_split_does_not_transfer_digit_context_to_its_suffix() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let engine = Arc::new(LearningEngine::new(
+        Box::new(RecordingSplitEngine {
+            base: SplittingEngine::new(Box::new(HeuristicEngine::new()), EnglishModel::shared()),
+            calls: calls.clone(),
+        }),
+        None,
+    ));
+    let mut r = Rig {
+        session: InputSession::new(engine, AppPolicies::default(), true),
+        field: FakeTextField::new(),
+    };
+    // Synthetic Korean routing makes the whole-token gate deterministic;
+    // suffix recognition still uses the real engine and English vocabulary.
+    // Require an actual split before checking context, not an accuracy outcome.
+    r.type_("1");
+    let mut typed = String::new();
+    let mut split = false;
+    for ch in "dhsmfdmsgoogledptj".chars() {
+        typed.push(ch);
+        r.type_(&ch.to_string());
+        if r.session.keys() != typed {
+            assert!(!r.session.keys().is_empty());
+            assert!(typed.ends_with(r.session.keys()));
+            split = true;
+            break;
+        }
+    }
+    assert!(split, "the fixture must exercise an actual internal split");
+    let suffix = format!("{}x", r.session.keys());
+    calls.lock().unwrap().clear();
+    r.type_("x");
+    assert_eq!(r.session.keys(), suffix);
+    let calls = calls.lock().unwrap();
+    let contexts: Vec<_> = calls
+        .iter()
+        .filter(|(keys, _)| keys == &suffix)
+        .map(|(_, context)| context)
+        .collect();
+    assert!(
+        !contexts.is_empty(),
+        "no decision for split suffix {suffix}"
+    );
+    assert!(contexts.iter().all(|context| !context.after_digit));
+}
+
+#[test]
+fn following_digit_is_recorded_separately_from_preceding_digit() {
+    for token in ["p", "k", "hello"] {
+        let (mut r, calls) = recording_rig();
+        r.type_(token);
+        assert_digit_context(&calls, token, false);
+        calls.lock().unwrap().clear();
+        r.type_("8");
+        let calls = calls.lock().unwrap();
+        let decisions: Vec<_> = calls.iter().filter(|(keys, _)| keys == token).collect();
+        assert!(
+            !decisions.is_empty(),
+            "no digit-boundary decision for {token}"
+        );
+        assert!(decisions.iter().any(|(_, context)| context.before_digit));
+        assert!(decisions.iter().all(|(_, context)| !context.after_digit));
+    }
+}
+
+#[test]
+fn existing_counter_and_identifier_outputs_are_preserved() {
+    for (script, expected) in [
+        ("10ro ", "10개 "),
+        ("10sus ", "10년 "),
+        ("10qjs ", "10번 "),
+        ("10akfl ", "10마리 "),
+        ("10rork ", "10개가 "),
+        ("k8s ", "k8s "),
+        ("p95 ", "p95 "),
+    ] {
+        let mut r = Rig::new("digit-output-control");
+        r.type_(script);
+        assert_eq!(r.text(), expected, "{script}");
     }
 }
 

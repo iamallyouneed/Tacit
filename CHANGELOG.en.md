@@ -9,6 +9,10 @@ Korean version: [CHANGELOG.md](CHANGELOG.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- Digits now supply their context to the following word, including after another word, so units such as `10cm` and `10fps` keep their Latin reading. Deleting an owned suffix preserves its numeric origin, while context changes and internal word splits prevent that origin from leaking to unrelated text.
+
 ## [0.10.10] - 2026-10-23
 
 ### Changed

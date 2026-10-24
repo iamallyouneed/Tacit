@@ -55,6 +55,7 @@ impl InputSession {
         self.last_recorded = None;
         self.ja.live_suppressed = false;
         self.word.keys = ch.to_string();
+        self.word_after_digit = false;
         self.word.force(Language::Japanese, false);
         self.update_preview(client);
     }
@@ -552,6 +553,7 @@ impl InputSession {
             converter.learn(&candidate, &conversion.kana);
         }
         client.insert_text(&candidate.text, None);
+        self.word_after_digit = false;
         self.note_brackets(&candidate.text);
         let rest: String = conversion.kana.chars().skip(candidate.kana_count).collect();
         if rest.is_empty() {
@@ -790,6 +792,7 @@ impl InputSession {
             let committed = self.committed_japanese();
             client.insert_text(&committed, None);
             self.word.keys = back;
+            self.word_after_digit = false;
             self.word.syllable_start = None;
             self.previous_language = Some(Language::Japanese);
             self.word.force(Language::Korean, false);

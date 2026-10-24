@@ -216,6 +216,7 @@ impl InputSession {
             }
             client.insert_text(&korean.text(), None);
             self.word.keys = back;
+            self.word_after_digit = false;
             self.word.syllable_start = None;
             self.previous_language = Some(Language::Korean);
             self.word.forget_preview();
