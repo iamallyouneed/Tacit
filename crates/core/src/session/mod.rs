@@ -411,6 +411,7 @@ impl InputSession {
             if !eligible {
                 return self.handle(Key::Printable(' '), client);
             }
+            self.width.after_digit = false;
             self.close_flip_window();
             if self.width.full_width_space && self.previous_language == Some(Language::Japanese) {
                 return false; // the app types the half-width " "

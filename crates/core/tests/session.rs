@@ -190,6 +190,42 @@ fn whitespace_and_symbols_end_immediate_digit_context() {
     }
 }
 
+#[cfg(feature = "embedded-ja")]
+#[test]
+fn shift_space_discards_digit_context_in_both_widths() {
+    for after_japanese in [false, true] {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let engine = Arc::new(
+            LearningEngine::new(
+                Box::new(RecordingDecisionEngine {
+                    calls: calls.clone(),
+                }),
+                None,
+            )
+            .with_languages(tacit_core::Languages::legacy(true)),
+        );
+        let mut r = Rig {
+            session: InputSession::new(engine, AppPolicies::default(), true),
+            field: FakeTextField::new(),
+        };
+        if after_japanese {
+            r.session.set_full_width_space(true);
+            r.type_("kana⎋⏎");
+            assert_eq!(r.text(), "かな");
+        }
+        r.type_("1");
+        let consumed = r.key(Key::ShiftSpace);
+        assert_eq!(consumed, !after_japanese);
+        if !consumed {
+            r.field.insert_text(" ", None);
+        }
+        assert_eq!(r.text(), if after_japanese { "かな1 " } else { "1　" });
+        calls.lock().unwrap().clear();
+        r.type_("sus");
+        assert_digit_context(&calls, "sus", false);
+    }
+}
+
 #[test]
 fn session_boundaries_discard_pending_digit_context() {
     for boundary in ["delete", "enter", "other", "reset", "activate", "pause"] {
