@@ -306,6 +306,8 @@ impl InputSession {
 
     /// A new text field became active: pick its app's policy and forget the sentence context.
     pub fn activate(&mut self, exe: Option<&str>) {
+        self.width.after_digit = false;
+        self.word_after_digit = false;
         self.word.invalidate_correction_origin();
         #[cfg(feature = "japanese")]
         if let Some(converter) = &self.ja.converter {
@@ -409,6 +411,7 @@ impl InputSession {
             if !eligible {
                 return self.handle(Key::Printable(' '), client);
             }
+            self.width.after_digit = false;
             self.close_flip_window();
             if self.width.full_width_space && self.previous_language == Some(Language::Japanese) {
                 return false; // the app types the half-width " "
@@ -424,7 +427,9 @@ impl InputSession {
         if key == Key::ShiftSpace {
             return self.handle(Key::Printable(' '), client);
         }
-        if !(matches!(key, Key::Printable(_)) && self.word.keys().is_empty()) {
+        if !(matches!(key, Key::Letter(_))
+            || (matches!(key, Key::Printable(_)) && self.word.keys().is_empty()))
+        {
             self.width.after_digit = false;
         }
         let pending = self.last_commit.take();
@@ -462,6 +467,7 @@ impl InputSession {
     }
 
     fn on_letter(&mut self, ch: char, client: &mut dyn TextClient) -> bool {
+        let after_digit = std::mem::take(&mut self.width.after_digit);
         // A symbol on its own is confirmed by the next word, which is judged by itself.
         #[cfg(feature = "japanese")]
         if !self.word.keys().is_empty()
@@ -479,7 +485,7 @@ impl InputSession {
             if self.korean_only {
                 self.word.force(Language::Korean, false);
             }
-            self.word_after_digit = self.width.after_digit;
+            self.word_after_digit = after_digit;
             #[cfg(feature = "japanese")]
             {
                 self.ja.live_suppressed = false;
@@ -543,6 +549,8 @@ impl InputSession {
             self.ja.added_n_marker = false;
         }
         if self.word.is_empty() {
+            // The owned suffix is gone, but its preceding digit is still in the app.
+            self.width.after_digit = std::mem::take(&mut self.word_after_digit);
             self.word.reset();
         }
         self.update_preview(client);
@@ -632,6 +640,7 @@ impl InputSession {
         self.word_before_digit = ch.is_ascii_digit();
         let word = self.finish_word();
         self.word_before_digit = false;
+        self.width.after_digit = ch.is_numeric();
         // Only the word goes in; the app types the space or punctuation itself, as with
         // the system's Korean input.
         client.insert_text(&word.text, None);
@@ -704,6 +713,7 @@ impl InputSession {
         };
         let language = self.word.shown_language().unwrap_or(Language::English);
         self.word.reset();
+        self.word_after_digit = false;
         client.insert_text(&word, None);
         if let Some(h) = &self.history {
             h.record(&word);
@@ -737,6 +747,7 @@ impl InputSession {
 
     /// Commits whatever is in progress as-is (focus change, shortcut, deactivation).
     pub fn commit(&mut self, client: &mut dyn TextClient) {
+        self.width.after_digit = false;
         self.close_flip_window();
         #[cfg(feature = "japanese")]
         if let Some(conversion) = self.ja.conversion.take() {
@@ -748,10 +759,12 @@ impl InputSession {
                 converter.learn(conversion.current(), &conversion.kana);
             }
             self.word.keys_mut().clear();
+            self.word_after_digit = false;
             self.previous_language = Some(Language::Japanese);
             return;
         }
         if self.word.is_empty() {
+            self.word_after_digit = false;
             return;
         }
         let word = self.finish_word();
@@ -835,6 +848,7 @@ impl InputSession {
         };
         self.previous_language = Some(language.sentence_language());
         self.word.reset();
+        self.word_after_digit = false;
         #[cfg(feature = "japanese")]
         {
             self.ja.added_n_marker = false;

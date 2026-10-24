@@ -511,6 +511,10 @@ mod tests {
             ("d", "d"),
             ("Tom's", "Tom's"),
             ("dkssud d", "안녕 ㅇ"),
+            ("10cm", "10cm"),
+            ("10fps", "10fps"),
+            ("10sus", "10년"),
+            ("k8s", "k8s"),
         ] {
             for (kind, ch, boundary) in [(1, ' ', " "), (5, '\0', "")] {
                 for known_context in [true, false] {

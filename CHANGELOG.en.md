@@ -11,6 +11,7 @@ Korean version: [CHANGELOG.md](CHANGELOG.md).
 
 ### Fixed
 
+- Digits now supply their context to the following word, including after another word, so units such as `10cm` and `10fps` keep their Latin reading. Deleting an owned suffix preserves its numeric origin, while context changes and internal word splits prevent that origin from leaking to unrelated text.
 - Explicit language corrections on unchanged input and context now learn against the reading actually shown. Hidden final scoring no longer prevents those corrections from being learned or treats a return to the original reading as a new correction. Existing scoring after editing a forced word and ordinary confirmation behavior are preserved.
 
 ## [0.10.10] - 2026-10-23
